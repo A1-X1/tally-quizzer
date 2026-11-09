@@ -8,9 +8,13 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: Build and verify all installers (without publishing)
+        description: Build and verify all installers
         type: boolean
         default: true
+      release:
+        description: Also publish a GitHub release, tagging this commit v<package.json version>
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,7 +43,7 @@ jobs:
   package:
     name: Package ${{ matrix.name }}
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.package)
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.package || inputs.release))
     strategy:
       fail-fast: false
       matrix:
@@ -98,11 +102,12 @@ jobs:
   release:
     name: Publish GitHub release
     needs: package
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -112,7 +117,12 @@ jobs:
         run: ls -la dist
       - name: Version
         id: v
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          v="$(node -p "require('./package.json').version")"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF_NAME#v}" != "$v" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $v"; exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Check all four release files are present
         run: |
           v="${{ steps.v.outputs.version }}"
@@ -121,7 +131,9 @@ jobs:
           done
       - uses: softprops/action-gh-release@v2
         with:
-          name: Tally ${{ github.ref_name }}
+          tag_name: v${{ steps.v.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Tally ${{ steps.v.outputs.version }}
           draft: false
           prerelease: false
           generate_release_notes: false
