@@ -1,0 +1,537 @@
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, shell, type IpcMainInvokeEvent } from 'electron'
+import fs from 'node:fs'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
+import type { Channel, IpcEnvelope, Req, Res } from '../shared/api'
+import { MAX_CSV_BYTES, RELEASES_URL } from '../shared/api'
+import { MODULE_COLOURS, type HistoryFilter, type ImportResult } from '../shared/types'
+import {
+  adopt,
+  afterOpen,
+  bootState,
+  closeDb,
+  ctx,
+  defaultLocation,
+  requireDb,
+  tryOpenConfigured
+} from './context'
+import { checkDatabaseFile, openDatabase } from './db/connection'
+import {
+  backupTo,
+  copyDataFolder,
+  createBackup,
+  createDataFolder,
+  dataInfo,
+  DB_FILE,
+  inspectLocation,
+  rememberInspection,
+  removeOldData,
+  takeInspection,
+  writeMirror,
+  DATA_FOLDER_NAME
+} from './storage'
+import * as modules from './services/modules'
+import * as quizzes from './services/quizzes'
+import * as attempts from './services/attempts'
+import * as analytics from './services/analytics'
+import { UserError } from './services/rows'
+import { toCsv } from './csv/parse'
+import templateCsv from '../../samples/template.csv?raw'
+import exampleCsv from '../../samples/example_quiz.csv?raw'
+import { applyTitleBarTheme, isTrustedUrl } from './window'
+
+// ---------------------------------------------------------------------------
+// Validation schemas
+
+const id = z.number().int().positive()
+const text = (max: number) => z.string().max(max)
+const nullableText = (max: number) => z.string().max(max).nullable()
+
+const moduleInput = z
+  .object({
+    name: text(120),
+    code: nullableText(40),
+    colour: z.enum(MODULE_COLOURS),
+    description: nullableText(2000)
+  })
+  .strict()
+
+const settingsSchema = z
+  .object({
+    shuffleQuestions: z.boolean(),
+    shuffleOptions: z.boolean(),
+    feedback: z.enum(['end', 'each']),
+    timeLimitMinutes: z.number().int().min(1).max(600).nullable(),
+    marking: z.enum(['strict', 'partial'])
+  })
+  .strict()
+
+const isoDate = z.string().max(40).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date')
+
+const historyFilter = z
+  .object({
+    moduleId: id.nullable(),
+    quizId: id.nullable(),
+    from: isoDate.nullable(),
+    to: isoDate.nullable(),
+    minScore: z.number().min(0).max(100).nullable(),
+    maxScore: z.number().min(0).max(100).nullable(),
+    includePractice: z.boolean()
+  })
+  .strict()
+
+const csvText = z.string().max(MAX_CSV_BYTES)
+const filename = z.string().min(1).max(255)
+
+// ---------------------------------------------------------------------------
+
+type Handler<C extends Channel> = (req: Req<C>, event: IpcMainInvokeEvent) => Res<C> | Promise<Res<C>>
+
+function handle<C extends Channel>(channel: C, schema: z.ZodType<Req<C>> | null, fn: Handler<C>): void {
+  ipcMain.handle(channel, async (event, payload: unknown): Promise<IpcEnvelope<Res<C>>> => {
+    if (!isTrustedUrl(event.senderFrame?.url ?? '')) {
+      return { ok: false, error: 'Request rejected.' }
+    }
+    try {
+      const req = (schema ? schema.parse(payload) : undefined) as Req<C>
+      const data = await fn(req, event)
+      return { ok: true, data }
+    } catch (e) {
+      if (e instanceof z.ZodError) {
+        console.error(`[ipc] invalid payload for ${channel}:`, e.issues)
+        return { ok: false, error: 'The request was not valid.' }
+      }
+      if (!(e instanceof UserError)) console.error(`[ipc] ${channel} failed:`, e)
+      const message = e instanceof Error ? e.message : String(e)
+      const code = e instanceof UserError ? e.code : 'ERROR'
+      return { ok: false, error: `${code}::${message}` }
+    }
+  })
+}
+
+const win = (e: IpcMainInvokeEvent): BrowserWindow | undefined => BrowserWindow.fromWebContents(e.sender) ?? undefined
+
+async function pickFolder(e: IpcMainInvokeEvent, title: string): Promise<string | null> {
+  const w = win(e)
+  const opts: Electron.OpenDialogOptions = {
+    title,
+    defaultPath: defaultLocation(),
+    properties: ['openDirectory', 'createDirectory', 'promptToCreate']
+  }
+  const res = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
+  if (res.canceled || res.filePaths.length === 0) return null
+  return res.filePaths[0]
+}
+
+async function saveDialog(e: IpcMainInvokeEvent, opts: Electron.SaveDialogOptions): Promise<string | null> {
+  const w = win(e)
+  const res = w ? await dialog.showSaveDialog(w, opts) : await dialog.showSaveDialog(opts)
+  if (res.canceled || !res.filePath) return null
+  return res.filePath
+}
+
+function readCsvFile(file: string): { filename: string; text: string } {
+  const stat = fs.statSync(file)
+  if (stat.size > MAX_CSV_BYTES) {
+    throw new UserError(`This file is larger than ${MAX_CSV_BYTES / 1024 / 1024} MB. Split it into smaller quizzes.`)
+  }
+  const buf = fs.readFileSync(file)
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(buf)
+  return { filename: path.basename(file), text }
+}
+
+function mirrorQuiz(result: ImportResult, moduleId: number, csv: string): void {
+  const { dataDir, db } = requireDb()
+  const m = modules.getModule(db, moduleId)
+  writeMirror(dataDir, m.name, result.title, result.versionNo, csv)
+}
+
+const restoreTokens = new Map<string, string>()
+
+function localStamp(d = new Date()): string {
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+function localDateTime(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+export function registerIpc(): void {
+  // ----- App -----
+  handle('app:boot', null, () => bootState())
+  handle('app:version', null, () => app.getVersion())
+  handle('app:openReleases', null, async () => {
+    await shell.openExternal(RELEASES_URL)
+  })
+  handle('app:setTitleBarTheme', z.object({ dark: z.boolean() }).strict(), (req, e) => {
+    const w = win(e)
+    if (w) applyTitleBarTheme(w, req.dark)
+  })
+
+  // ----- First run and recovery -----
+  handle('setup:inspectDefault', null, () => rememberInspection(inspectLocation(defaultLocation())))
+  handle('setup:pickFolder', null, async (_r, e) => {
+    const dir = await pickFolder(e, 'Choose where to keep your Tally data')
+    return dir ? rememberInspection(inspectLocation(dir)) : null
+  })
+  handle('setup:locate', null, async (_r, e) => {
+    const dir = await pickFolder(e, `Locate your "${DATA_FOLDER_NAME}" folder`)
+    return dir ? rememberInspection(inspectLocation(dir)) : null
+  })
+  handle('setup:create', z.object({ token: z.string().max(64) }).strict(), async (req) => {
+    const i = takeInspection(req.token)
+    // Re-check at the moment of creation; the folder may have changed.
+    const now = inspectLocation(i.location)
+    if (now.status === 'existing') throw new UserError('This folder already contains Tally data. Choose "Use this existing data" instead.')
+    if (now.status !== 'new') throw new UserError(now.detail ?? 'Tally cannot use this folder.')
+    const db = createDataFolder(now.dataDir)
+    adopt(db, now.dataDir, true)
+    await afterOpen()
+    return bootState()
+  })
+  handle('setup:useExisting', z.object({ token: z.string().max(64) }).strict(), async (req) => {
+    const i = takeInspection(req.token)
+    const now = inspectLocation(i.location)
+    if (now.status !== 'existing') throw new UserError(now.detail ?? 'No Tally data was found in this folder.')
+    const db = openDatabase(path.join(now.dataDir, DB_FILE))
+    adopt(db, now.dataDir, true)
+    await afterOpen()
+    return bootState()
+  })
+  handle('setup:retry', null, async () => {
+    const s = tryOpenConfigured()
+    if (s.kind === 'ready') await afterOpen()
+    return s
+  })
+
+  // ----- Modules -----
+  handle('modules:list', z.object({ includeArchived: z.boolean() }).strict(), (req) =>
+    modules.listModules(requireDb().db, req.includeArchived)
+  )
+  handle('modules:create', moduleInput, (req) => modules.createModule(requireDb().db, req))
+  handle('modules:update', z.object({ id, input: moduleInput }).strict(), (req) =>
+    modules.updateModule(requireDb().db, req.id, req.input)
+  )
+  handle('modules:archive', z.object({ id, archived: z.boolean() }).strict(), (req) =>
+    modules.archiveModule(requireDb().db, req.id, req.archived)
+  )
+  handle('modules:delete', z.object({ id, confirmName: text(200) }).strict(), async (req) => {
+    const { db, dataDir } = requireDb()
+    const m = modules.getModule(db, req.id)
+    if (req.confirmName.trim() !== m.name) throw new UserError('The name you typed does not match the module name.')
+    await createBackup(db, dataDir, 'pre-delete')
+    modules.deleteModule(db, req.id, req.confirmName)
+  })
+  handle('modules:detail', z.object({ id }).strict(), (req) => analytics.moduleDetail(requireDb().db, req.id))
+
+  // ----- Quizzes -----
+  handle('quizzes:detail', z.object({ id }).strict(), (req) => quizzes.quizDetail(requireDb().db, req.id))
+  handle('quizzes:rename', z.object({ id, title: text(200), description: nullableText(2000) }).strict(), (req) =>
+    quizzes.renameQuiz(requireDb().db, req.id, req.title, req.description)
+  )
+  handle('quizzes:archive', z.object({ id, archived: z.boolean() }).strict(), (req) =>
+    quizzes.archiveQuiz(requireDb().db, req.id, req.archived)
+  )
+  handle('quizzes:delete', z.object({ id }).strict(), async (req) => {
+    const { db, dataDir } = requireDb()
+    await createBackup(db, dataDir, 'pre-delete')
+    quizzes.deleteQuiz(db, req.id)
+  })
+  handle('quizzes:all', null, () => analytics.quizOptions(requireDb().db))
+
+  // ----- Import -----
+  handle('import:pickFile', null, async (_r, e) => {
+    const w = win(e)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Choose a quiz CSV',
+      properties: ['openFile'],
+      filters: [{ name: 'CSV files', extensions: ['csv', 'txt'] }]
+    }
+    const res = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
+    if (res.canceled || res.filePaths.length === 0) return null
+    return readCsvFile(res.filePaths[0])
+  })
+  handle('import:preview', z.object({ moduleId: id, filename, text: csvText }).strict(), (req) =>
+    quizzes.previewImport(requireDb().db, req.moduleId, req.filename, req.text)
+  )
+  handle(
+    'import:commit',
+    z
+      .object({
+        moduleId: id,
+        filename,
+        text: csvText,
+        title: text(200),
+        mode: z.enum(['new', 'version']),
+        targetQuizId: id.nullable()
+      })
+      .strict(),
+    (req) => {
+      const result = quizzes.commitImport(requireDb().db, req)
+      mirrorQuiz(result, req.moduleId, req.text)
+      return result
+    }
+  )
+  handle('import:sample', null, () => {
+    const { db } = requireDb()
+    const name = 'Foundations of computing'
+    const existing = modules.listModules(db, true).find((m) => m.name.toLowerCase() === name.toLowerCase())
+    const mod =
+      existing ??
+      modules.createModule(db, {
+        name,
+        code: 'SAMPLE',
+        colour: 'cobalt',
+        description: 'The sample quiz that ships with Tally: logic, sets, relations and complexity.'
+      })
+    if (mod.archivedAt) modules.archiveModule(db, mod.id, false)
+    const preview = quizzes.previewImport(db, mod.id, 'example_quiz.csv', exampleCsv)
+    if (preview.duplicateOf) {
+      return { quizId: preview.duplicateOf.quizId, versionNo: preview.duplicateOf.versionNo, title: preview.duplicateOf.title, moduleId: mod.id }
+    }
+    const result = quizzes.commitImport(db, {
+      moduleId: mod.id,
+      filename: 'example_quiz.csv',
+      text: exampleCsv,
+      title: 'Logic, sets and complexity',
+      mode: 'new',
+      targetQuizId: null
+    })
+    mirrorQuiz(result, mod.id, exampleCsv)
+    return { ...result, moduleId: mod.id }
+  })
+
+  // ----- Attempts -----
+  handle(
+    'attempts:start',
+    z
+      .object({
+        quizId: id,
+        settings: settingsSchema,
+        practiceFromAttemptId: id.nullable(),
+        replaceInProgress: z.boolean()
+      })
+      .strict(),
+    (req) => {
+      const { db } = requireDb()
+      const attemptId = attempts.startAttempt(db, req)
+      return attempts.getSession(db, attemptId)
+    }
+  )
+  handle('attempts:session', z.object({ id }).strict(), (req) => attempts.getSession(requireDb().db, req.id))
+  handle(
+    'attempts:answer',
+    z.object({ attemptId: id, questionId: id, selected: z.array(id).max(5) }).strict(),
+    (req) => attempts.saveAnswer(requireDb().db, req)
+  )
+  handle('attempts:reveal', z.object({ attemptId: id, questionId: id }).strict(), (req) =>
+    attempts.revealAnswer(requireDb().db, req.attemptId, req.questionId)
+  )
+  handle('attempts:flag', z.object({ attemptId: id, questionId: id, flagged: z.boolean() }).strict(), (req) =>
+    attempts.setFlag(requireDb().db, req.attemptId, req.questionId, req.flagged)
+  )
+  handle(
+    'attempts:tick',
+    z
+      .object({
+        attemptId: id,
+        questionId: id.nullable(),
+        seconds: z.number().min(0).max(attempts.MAX_TICK_SECONDS),
+        position: z.number().int().min(0).max(10000)
+      })
+      .strict(),
+    (req) => attempts.tick(requireDb().db, req)
+  )
+  handle('attempts:submit', z.object({ id }).strict(), (req) => {
+    const { db } = requireDb()
+    attempts.submitAttempt(db, req.id)
+    return attempts.getResult(db, req.id)
+  })
+  handle('attempts:abandon', z.object({ id }).strict(), (req) => attempts.abandonAttempt(requireDb().db, req.id))
+  handle('attempts:result', z.object({ id }).strict(), (req) => attempts.getResult(requireDb().db, req.id))
+  handle('attempts:inProgress', null, () => attempts.inProgress(requireDb().db))
+
+  // ----- Analytics and history -----
+  handle(
+    'stats:dashboard',
+    z.object({ moduleId: id.nullable(), range: z.enum(['30d', '90d', '1y', 'all']) }).strict(),
+    (req) => analytics.dashboard(requireDb().db, req.moduleId, req.range)
+  )
+  handle('history:list', historyFilter, (req) => analytics.history(requireDb().db, req as HistoryFilter))
+  handle('history:export', historyFilter, async (req, e) => {
+    const rows = analytics.history(requireDb().db, req as HistoryFilter)
+    const file = await saveDialog(e, {
+      title: 'Export attempt history',
+      defaultPath: path.join(app.getPath('downloads'), `Tally history ${localStamp()}.csv`),
+      filters: [{ name: 'CSV', extensions: ['csv'] }]
+    })
+    if (!file) return { saved: false }
+    const header = [
+      'module',
+      'quiz',
+      'version',
+      'attempt',
+      'practice',
+      'marking',
+      'started_local',
+      'submitted_local',
+      'started_utc',
+      'submitted_utc',
+      'duration_seconds',
+      'marks_awarded',
+      'marks_available',
+      'percentage',
+      'questions'
+    ]
+    const body = rows.map((r) => [
+      r.moduleName,
+      r.quizTitle,
+      r.versionNo,
+      r.attemptNumber ?? '',
+      r.isPractice ? 'yes' : 'no',
+      r.markingMode,
+      localDateTime(r.startedAt),
+      localDateTime(r.submittedAt),
+      r.startedAt,
+      r.submittedAt ?? '',
+      r.durationSeconds,
+      r.marksAwarded ?? '',
+      r.marksAvailable,
+      r.percentage ?? '',
+      r.questionCount
+    ])
+    // Neutralise spreadsheet formula injection from quiz titles.
+    const safe = body.map((row) =>
+      row.map((v) => (typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : v))
+    )
+    fs.writeFileSync(file, '﻿' + toCsv([header, ...safe]), 'utf8')
+    return { saved: true, path: file, rows: rows.length }
+  })
+
+  // ----- Settings -----
+  handle('settings:getTheme', null, () => {
+    if (!ctx.db) return 'system'
+    const v = ctx.db.prepare(`SELECT value FROM settings WHERE key = 'theme'`).pluck().get() as string | undefined
+    return v === 'light' || v === 'dark' ? v : 'system'
+  })
+  handle('settings:setTheme', z.object({ theme: z.enum(['system', 'light', 'dark']) }).strict(), (req) => {
+    const { db } = requireDb()
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('theme', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(req.theme)
+    nativeTheme.themeSource = req.theme
+  })
+
+  // ----- Data -----
+  handle('data:info', null, () => {
+    const { db, dataDir } = requireDb()
+    return dataInfo(db, dataDir)
+  })
+  handle('data:showInFolder', null, () => {
+    const { dataDir } = requireDb()
+    shell.showItemInFolder(path.join(dataDir, DB_FILE))
+  })
+  handle('data:backupNow', null, async () => {
+    const { db, dataDir } = requireDb()
+    return { filename: await createBackup(db, dataDir, 'manual') }
+  })
+  handle('data:export', null, async (_r, e) => {
+    const { db } = requireDb()
+    const file = await saveDialog(e, {
+      title: 'Export your Tally data',
+      defaultPath: path.join(app.getPath('documents'), `Tally backup ${localStamp()}.sqlite`),
+      filters: [{ name: 'Tally data', extensions: ['sqlite'] }]
+    })
+    if (!file) return { saved: false }
+    await backupTo(db, file)
+    return { saved: true, path: file }
+  })
+  handle('data:move', null, async (_r, e) => {
+    const { db, dataDir } = requireDb()
+    const picked = await pickFolder(e, 'Choose where to move your Tally data')
+    if (!picked) return { moved: false }
+    const inspected = inspectLocation(picked)
+    if (inspected.status === 'existing' || inspected.status === 'invalid') {
+      throw new UserError('That folder already contains a Tally database. Choose an empty folder.')
+    }
+    if (inspected.status === 'not-writable') throw new UserError('Tally cannot write to that folder.')
+    const target = inspected.dataDir
+    await createBackup(db, dataDir, 'pre-move')
+    const opened = await copyDataFolder(db, dataDir, target)
+    const oldDir = dataDir
+    adopt(opened, target, true)
+    removeOldData(oldDir)
+    return { moved: true, dataDir: target }
+  })
+  handle('data:pickRestore', null, async (_r, e) => {
+    const w = win(e)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Choose a Tally data file to restore',
+      properties: ['openFile'],
+      filters: [{ name: 'Tally data', extensions: ['sqlite', 'db'] }]
+    }
+    const res = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
+    if (res.canceled || res.filePaths.length === 0) return null
+    const file = res.filePaths[0]
+    const check = checkDatabaseFile(file)
+    if (!check.valid || !check.summary) throw new UserError(check.reason ?? 'That file is not Tally data.')
+    const token = randomUUID()
+    restoreTokens.set(token, file)
+    return { token, filename: path.basename(file), summary: check.summary, schemaVersion: check.schemaVersion }
+  })
+  handle('data:restore', z.object({ token: z.string().max(64) }).strict(), async (req) => {
+    const file = restoreTokens.get(req.token)
+    if (!file) throw new UserError('Choose the file to restore again.')
+    restoreTokens.delete(req.token)
+    const { db, dataDir } = requireDb()
+    const check = checkDatabaseFile(file)
+    if (!check.valid) throw new UserError(check.reason ?? 'That file is not Tally data.')
+    const backup = await createBackup(db, dataDir, 'pre-restore')
+    const live = path.join(dataDir, DB_FILE)
+    const staged = path.join(dataDir, `${DB_FILE}.restore`)
+    // Copy the chosen file consistently via the backup API before touching live data.
+    const source = new (await import('better-sqlite3')).default(file, { readonly: true, fileMustExist: true })
+    try {
+      fs.rmSync(staged, { force: true })
+      await source.backup(staged)
+    } finally {
+      source.close()
+    }
+    const stagedCheck = checkDatabaseFile(staged)
+    if (!stagedCheck.valid) {
+      fs.rmSync(staged, { force: true })
+      throw new UserError('The copy of that file failed verification, so nothing was changed.')
+    }
+    closeDb()
+    fs.rmSync(`${live}-journal`, { force: true })
+    fs.renameSync(staged, live)
+    try {
+      adopt(openDatabase(live), dataDir, false)
+    } catch (err) {
+      // Put the previous data back.
+      fs.copyFileSync(path.join(dataDir, 'backups', backup), live)
+      adopt(openDatabase(live), dataDir, false)
+      throw new UserError(`The restored data could not be opened, so your previous data was put back. (${String(err)})`)
+    }
+    return { restored: true, backup }
+  })
+
+  // ----- Help -----
+  handle('help:saveSample', z.object({ which: z.enum(['template', 'example']) }).strict(), async (req, e) => {
+    const name = req.which === 'template' ? 'tally-template.csv' : 'tally-example-quiz.csv'
+    const file = await saveDialog(e, {
+      title: req.which === 'template' ? 'Save the quiz template' : 'Save the sample quiz',
+      defaultPath: path.join(app.getPath('downloads'), name),
+      filters: [{ name: 'CSV', extensions: ['csv'] }]
+    })
+    if (!file) return { saved: false }
+    fs.writeFileSync(file, req.which === 'template' ? templateCsv : exampleCsv, 'utf8')
+    return { saved: true, path: file }
+  })
+  handle('help:copy', z.object({ text: text(100_000) }).strict(), (req) => {
+    clipboard.writeText(req.text)
+  })
+}

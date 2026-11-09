@@ -1,0 +1,40 @@
+# Dependencies and build output
+node_modules/
+out/
+dist/
+release/
+*.tsbuildinfo
+
+# Test output
+test-results/
+playwright-report/
+tests/.tmp/
+coverage/
+screenshots/
+
+# User data must never be committed
+*.sqlite
+*.sqlite-journal
+*.db
+*.db-journal
+Tally Data/
+backups/
+config.json
+window-state.json
+
+# Only the shipped samples may be committed as CSV
+*.csv
+!samples/template.csv
+!samples/example_quiz.csv
+!tests/fixtures/*.csv
+
+# Local environment and secrets
+.env
+.env.*
+*.pem
+*.p12
+*.key
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

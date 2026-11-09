@@ -1,0 +1,48 @@
+{
+  "name": "tally",
+  "productName": "Tally",
+  "version": "1.0.0",
+  "description": "A local-first desktop quiz and revision tracker.",
+  "main": "./out/main/index.js",
+  "author": "A1-X1",
+  "license": "MIT",
+  "homepage": "https://github.com/A1-X1/tally-quizzer",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "node scripts/run-vitest.mjs run",
+    "test:e2e": "playwright test --trace off",
+    "dist": "electron-vite build && electron-builder --publish never",
+    "dist:linux": "electron-vite build && electron-builder --linux --publish never",
+    "dist:dir": "electron-vite build && electron-builder --dir --publish never",
+    "icons": "node scripts/make-icons.mjs",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@playwright/test": "^1.65.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "katex": "^0.19.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
+  }
+}

@@ -1,0 +1,322 @@
+/* ------------------------------------------------------------------ */
+/* Title bar and floating navigation                                   */
+/* ------------------------------------------------------------------ */
+
+.titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  -webkit-app-region: drag;
+  app-region: drag;
+  z-index: 20;
+  background: var(--bg);
+}
+
+:root[data-platform='darwin'] .titlebar {
+  padding-left: 92px;
+}
+
+/* On Windows and Linux the OS draws its own controls on the right; without the
+   Window Controls Overlay variables, reserve their width explicitly. */
+:root:not([data-platform='darwin']) .titlebar {
+  padding-right: max(16px, calc(100vw - env(titlebar-area-width, calc(100vw - 150px)) - env(titlebar-area-x, 0px)));
+}
+
+.titlebar-bare {
+  background: transparent;
+}
+
+.nav {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 50px;
+  padding: 5px;
+  margin-top: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--nav-bg);
+  color: var(--nav-ink);
+  border: 1px solid var(--nav-border);
+  box-shadow: var(--shadow-pop);
+}
+
+.nav-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px 0 12px;
+  margin-right: 6px;
+  color: var(--nav-ink);
+  text-decoration: none;
+  font-family: var(--font-display);
+  font-weight: 750;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+  border-radius: var(--radius-pill);
+}
+
+.nav-items {
+  list-style: none;
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-item,
+.nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-pill);
+  color: var(--nav-ink-2);
+  text-decoration: none;
+  font-weight: 560;
+  font-size: 14.5px;
+  letter-spacing: -0.005em;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.nav-icon {
+  width: 40px;
+  padding: 0;
+  margin-left: 4px;
+}
+
+.nav-item:hover,
+.nav-icon:hover {
+  color: var(--nav-ink);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.nav-item.is-current,
+.nav-icon.is-current {
+  background: var(--nav-active-bg);
+  color: var(--nav-active-ink);
+}
+
+.nav-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px 0 15px;
+  margin-left: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+  font-size: 14.5px;
+  text-decoration: none;
+  transition: background var(--dur) var(--ease);
+}
+
+.nav-cta:hover {
+  background: var(--accent-hover);
+}
+
+.nav a:focus-visible {
+  outline: 2px solid var(--highlight);
+  outline-offset: 2px;
+  border-radius: var(--radius-pill);
+}
+
+/* ------------------------------------------------------------------ */
+/* Main scroll area                                                    */
+/* ------------------------------------------------------------------ */
+
+.shell {
+  height: 100%;
+}
+
+.main {
+  position: absolute;
+  top: var(--titlebar);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-padding-top: 24px;
+}
+
+.shell-focused .main {
+  top: var(--titlebar);
+}
+
+.page {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 36px var(--gutter) 96px;
+}
+
+.boot-error {
+  padding: 120px 48px;
+  font-size: 18px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 120px 0;
+}
+
+.loading-bar {
+  width: 120px;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--ink) 0 30%, var(--rule) 30% 100%);
+  background-size: 200% 100%;
+  animation: load 1s linear infinite;
+}
+
+@keyframes load {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Focused quiz bar                                                    */
+/* ------------------------------------------------------------------ */
+
+.take-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 20px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg);
+  -webkit-app-region: drag;
+  app-region: drag;
+  z-index: 20;
+}
+
+:root[data-platform='darwin'] .take-bar {
+  padding-left: 92px;
+}
+
+:root:not([data-platform='darwin']) .take-bar {
+  padding-right: max(20px, calc(100vw - env(titlebar-area-width, calc(100vw - 150px)) - env(titlebar-area-x, 0px)));
+}
+
+.take-bar button {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.take-exit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px 0 10px;
+  border: 1.5px solid var(--rule-2);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.take-exit:hover {
+  border-color: var(--ink);
+}
+
+.take-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.take-quiz {
+  font-family: var(--font-display);
+  font-weight: 650;
+  font-size: 17px;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.take-sub {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.take-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.take-progress-track {
+  width: 120px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.take-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+  transition: width var(--dur) var(--ease);
+}
+
+.take-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 78px;
+}
+
+.take-timer.is-low {
+  color: var(--bad-text);
+}
+
+.take-save {
+  font-size: 12px;
+  color: var(--ink-3);
+  min-width: 60px;
+}
+
+.take-save-error {
+  color: var(--bad-text);
+  font-weight: 600;
+}
+
+@media (max-width: 1080px) {
+  .take-progress-track {
+    width: 64px;
+  }
+  .take-save {
+    display: none;
+  }
+}

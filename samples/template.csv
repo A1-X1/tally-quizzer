@@ -1,0 +1,3 @@
+question,option_a,option_b,option_c,option_d,option_e,type,correct,marks,explanation,topic
+"Which connective is false only when the antecedent is true and the consequent is false?",Conjunction,Disjunction,Implication,Biconditional,Exclusive or,single,C,1,"An implication P → Q fails only when P is true and Q is false.",Propositional logic
+"Which of these are tautologies?",$P \lor \neg P$,$P \land \neg P$,$P \to P$,$P \to Q$,$\neg(P \land \neg P)$,multi,A;C;E,2,"A, C and E are true under every assignment; B is a contradiction and D is contingent.",Propositional logic

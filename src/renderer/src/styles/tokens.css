@@ -1,0 +1,127 @@
+@import '@fontsource-variable/bricolage-grotesque/standard.css';
+@import '@fontsource-variable/instrument-sans/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
+
+:root {
+  --font-display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', system-ui, sans-serif;
+  --font-text: 'Instrument Sans Variable', 'Instrument Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Light theme: warm paper, near-black ink, one cobalt accent. */
+  --bg: #f5f1e8;
+  --bg-sunk: #ece6d8;
+  --bg-hover: #efe9dc;
+  --surface: #fbf9f4;
+  --ink: #16181d;
+  --ink-2: #464a52;
+  --ink-3: #5f636b;
+  --rule: rgba(22, 24, 29, 0.13);
+  --rule-2: rgba(22, 24, 29, 0.24);
+  --rule-strong: #16181d;
+
+  --accent: #2447f9;
+  --accent-hover: #1a37d6;
+  --accent-ink: #ffffff;
+  --accent-soft: #e1e6fe;
+  --accent-text: #1f3ee0;
+
+  --highlight: #ffd84d;
+  --highlight-ink: #16181d;
+
+  --good: #0e8a5f;
+  --good-text: #0a7150;
+  --good-soft: #dcefe4;
+  --bad: #d6402f;
+  --bad-text: #b53223;
+  --bad-soft: #f8e0da;
+
+  --nav-bg: #16181d;
+  --nav-ink: #f5f1e8;
+  --nav-ink-2: rgba(245, 241, 232, 0.72);
+  --nav-active-bg: #f5f1e8;
+  --nav-active-ink: #16181d;
+  --nav-border: transparent;
+
+  --shadow-pop: 0 1px 0 rgba(22, 24, 29, 0.06), 0 12px 32px -12px rgba(22, 24, 29, 0.28);
+  --scrim: rgba(22, 24, 29, 0.42);
+
+  --mod-cobalt: #2447f9;
+  --mod-teal: #0d7d8c;
+  --mod-ochre: #b67900;
+  --mod-plum: #8b3c9c;
+  --mod-olive: #637316;
+  --mod-rose: #c23b74;
+  --mod-slate: #4b5b78;
+  --mod-graphite: #3a3d44;
+
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-pill: 999px;
+
+  --titlebar: 64px;
+  --content-max: 1240px;
+  --gutter: clamp(28px, 4.2vw, 64px);
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur: 160ms;
+
+  color-scheme: light;
+}
+
+/* Dark theme: a deliberate night palette, not an inversion. Warm charcoal paper,
+   bone ink, a lifted cobalt that holds AA contrast, and a raised graphite navbar. */
+:root[data-theme='dark'] {
+  --bg: #131418;
+  --bg-sunk: #1a1c21;
+  --bg-hover: #1d1f25;
+  --surface: #1c1e24;
+  --ink: #efebe1;
+  --ink-2: #c4c0b6;
+  --ink-3: #9c9890;
+  --rule: rgba(239, 235, 225, 0.12);
+  --rule-2: rgba(239, 235, 225, 0.22);
+  --rule-strong: #efebe1;
+
+  --accent: #7d95ff;
+  --accent-hover: #98abff;
+  --accent-ink: #0c1029;
+  --accent-soft: #222a4d;
+  --accent-text: #93a7ff;
+
+  --highlight: #ffd84d;
+  --highlight-ink: #16181d;
+
+  --good: #36c48c;
+  --good-text: #4fd39d;
+  --good-soft: #15302a;
+  --bad: #ff6f5c;
+  --bad-text: #ff8a7a;
+  --bad-soft: #3a1e1b;
+
+  --nav-bg: #23252c;
+  --nav-ink: #efebe1;
+  --nav-ink-2: rgba(239, 235, 225, 0.7);
+  --nav-active-bg: #efebe1;
+  --nav-active-ink: #131418;
+  --nav-border: rgba(239, 235, 225, 0.08);
+
+  --shadow-pop: 0 1px 0 rgba(0, 0, 0, 0.3), 0 16px 40px -14px rgba(0, 0, 0, 0.7);
+  --scrim: rgba(5, 6, 8, 0.62);
+
+  --mod-cobalt: #7d95ff;
+  --mod-teal: #3cb8c6;
+  --mod-ochre: #e0a52f;
+  --mod-plum: #c47fd4;
+  --mod-olive: #a4b84a;
+  --mod-rose: #ef77a6;
+  --mod-slate: #93a3c2;
+  --mod-graphite: #c9c5bb;
+
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur: 0ms;
+  }
+}
