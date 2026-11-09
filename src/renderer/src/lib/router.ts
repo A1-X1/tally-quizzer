@@ -10,7 +10,7 @@ export type Route =
   | { name: 'history'; moduleId: number | null; quizId: number | null }
   | { name: 'help'; section: string | null }
   | { name: 'settings' }
-  | { name: 'upload'; moduleId: number | null }
+  | { name: 'upload'; moduleId: number | null; materialIds?: number[]; quizId?: number | null; extend?: boolean }
 
 export function parseHash(hash: string): Route {
   const h = hash.replace(/^#\/?/, '')
@@ -39,7 +39,16 @@ export function parseHash(hash: string): Route {
     case 'settings':
       return { name: 'settings' }
     case 'upload':
-      return { name: 'upload', moduleId: num(q.get('module')) }
+      return {
+        name: 'upload',
+        moduleId: num(q.get('module')),
+        materialIds: (q.get('materials') ?? '')
+          .split(',')
+          .map((x) => num(x))
+          .filter((x): x is number => x !== null),
+        quizId: num(q.get('quiz')),
+        extend: q.get('extend') === '1'
+      }
     default:
       return { name: 'dashboard' }
   }
@@ -70,8 +79,15 @@ export function href(r: Route): string {
       return r.section ? `#/help/${r.section}` : '#/help'
     case 'settings':
       return '#/settings'
-    case 'upload':
-      return r.moduleId ? `#/upload?module=${r.moduleId}` : '#/upload'
+    case 'upload': {
+      const q = new URLSearchParams()
+      if (r.moduleId) q.set('module', String(r.moduleId))
+      if (r.materialIds?.length) q.set('materials', r.materialIds.join(','))
+      if (r.quizId) q.set('quiz', String(r.quizId))
+      if (r.extend) q.set('extend', '1')
+      const s = q.toString()
+      return `#/upload${s ? `?${s}` : ''}`
+    }
   }
 }
 

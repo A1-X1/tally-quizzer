@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { DB } from '../db/connection'
-import type { AiModel, GenerateRequest, GenerateResult, SourceFile } from '../../shared/types'
+import type { AiModel, GenerateRequest, GenerateResult, ParsedQuestion, SourceFile } from '../../shared/types'
 import { previewImport } from '../services/quizzes'
 import { getModule } from '../services/modules'
 import * as attempts from '../services/attempts'
@@ -8,7 +8,9 @@ import { UserError } from '../services/rows'
 import { aiSettings, loadKey, setModel } from './keystore'
 import { AiError, chat, chatOnce, listModels, type ModelInfo } from './openrouter'
 import { combineSources, extractSource, type ExtractedSource } from './extract'
-import { buildGenerationMessages, buildRepairMessages, generatedToCsv, keepValidRows } from './generate'
+import { buildGenerationMessages, buildRepairMessages, generatedToCsv, keepValidRows, questionsToCsv } from './generate'
+import { materialSources } from '../services/materials'
+import { validateQuizCsv } from '../csv/validate'
 import { buildMarkingMessages, parseMarking } from './mark'
 
 const sources = new Map<string, ExtractedSource>()
@@ -102,14 +104,32 @@ function friendly(e: unknown): never {
 export async function generate(db: DB, req: GenerateRequest): Promise<GenerateResult> {
   getModule(db, req.moduleId)
   const { key, model } = requireAi()
-  const chosen = req.sourceTokens.map((t) => {
+  const oneOff = req.sourceTokens.map((t) => {
     const s = sources.get(t)
     if (!s) throw new UserError('A file you added has expired. Remove it and add it again.')
     return s
   })
+  const saved = materialSources(db, req.moduleId, req.materialIds)
+  const chosen = [...saved, ...oneOff]
   const { material, truncated } = combineSources(chosen)
+
+  // Extending: keep the latest version's questions and ask for different ones.
+  let existing: ParsedQuestion[] = []
+  let baseTitle: string | null = null
+  if (req.extendQuizId !== null) {
+    const q = db
+      .prepare(
+        `SELECT q.title, q.module_id, v.csv_text FROM quizzes q JOIN quiz_versions v ON v.quiz_id = q.id
+         WHERE q.id = ? ORDER BY v.version_no DESC LIMIT 1`
+      )
+      .get(req.extendQuizId) as { title: string; module_id: number; csv_text: string } | undefined
+    if (!q || q.module_id !== req.moduleId) throw new UserError('That quiz is not in this module.')
+    existing = validateQuizCsv(q.csv_text).questions
+    baseTitle = q.title
+  }
+
   const info = (modelCache?.list ?? []).find((m) => m.id === model)
-  const messages = buildGenerationMessages(req, chosen.length ? material : null)
+  const messages = buildGenerationMessages(req, chosen.length ? material : null, existing.map((x) => x.prompt))
   const opts = { temperature: 0.5, maxTokens: 16_000, json: info?.structured ?? false }
 
   let answer: string
@@ -129,17 +149,46 @@ export async function generate(db: DB, req: GenerateRequest): Promise<GenerateRe
       /* keep the first attempt and drop invalid rows below */
     }
   }
-  const { csv, dropped } = keepValidRows(result.csv)
-  const title = (result.title || req.topic).replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'AI quiz'
+  const kept = keepValidRows(result.csv)
+  let csv = kept.csv
+  const fresh = validateQuizCsv(csv).questions
+  if (fresh.length === 0) {
+    throw new UserError('The AI did not produce any usable questions. Try again, give a clearer topic, or choose a different model.', 'AI')
+  }
+  let added: number | null = null
+  if (req.extendQuizId !== null) {
+    const seen = new Set(existing.map((x) => x.prompt.trim().toLowerCase()))
+    const novel = fresh.filter((x) => !seen.has(x.prompt.trim().toLowerCase()))
+    if (novel.length === 0) throw new UserError('The AI only repeated questions the quiz already has. Try again or change the topic.', 'AI')
+    csv = questionsToCsv([...existing, ...novel])
+    added = novel.length
+  }
+  const title = baseTitle ?? ((result.title || req.topic).replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'AI quiz')
   const filename = `${title}.csv`
   const preview = previewImport(db, req.moduleId, filename, csv)
   if (!preview.ok || preview.questionCount === 0) {
-    throw new UserError(
-      'The AI did not produce any usable questions. Try again, give a clearer topic, or choose a different model.',
-      'AI'
-    )
+    throw new UserError('The AI did not produce any usable questions. Try again, give a clearer topic, or choose a different model.', 'AI')
   }
-  return { preview: { ...preview, suggestedTitle: title }, csv, filename, model, dropped, truncated }
+  return {
+    preview: { ...preview, suggestedTitle: title },
+    csv,
+    filename,
+    model,
+    dropped: kept.dropped,
+    truncated,
+    added,
+    generation: {
+      topic: req.topic,
+      count: req.count,
+      difficulty: req.difficulty,
+      format: req.format,
+      instructions: req.instructions,
+      model,
+      extended: req.extendQuizId !== null,
+      materialIds: req.materialIds,
+      oneOffNames: oneOff.map((o) => o.name)
+    }
+  }
 }
 
 // ----- Marking written answers -----

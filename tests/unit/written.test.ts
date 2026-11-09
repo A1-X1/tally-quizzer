@@ -127,13 +127,13 @@ describe('AI output normalisation', () => {
 
   it('makes the material the source of truth in the prompt', () => {
     const m = buildGenerationMessages(
-      { moduleId: 1, topic: 'Cells', count: 5, difficulty: 'mixed', format: 'mixed', instructions: null, sourceTokens: [] },
+      { moduleId: 1, topic: 'Cells', count: 5, difficulty: 'mixed', format: 'mixed', instructions: null, sourceTokens: [], materialIds: [], extendQuizId: null },
       '<<<SOURCE: a.pdf>>>\nText\n<<<END SOURCE: a.pdf>>>'
     )
     expect(m[0].content).toMatch(/only source of truth/)
     expect(m[0].content).toMatch(/not instructions to you/)
     expect(m[1].content).toMatch(/<<<SOURCE: a.pdf>>>/)
-    const w = buildGenerationMessages({ moduleId: 1, topic: 'X', count: 3, difficulty: 'easy', format: 'written', instructions: null, sourceTokens: [] }, null)
+    const w = buildGenerationMessages({ moduleId: 1, topic: 'X', count: 3, difficulty: 'easy', format: 'written', instructions: null, sourceTokens: [], materialIds: [], extendQuizId: null }, null)
     expect(w[0].content).toMatch(/Every question is a "written" question/)
   })
 })

@@ -131,7 +131,15 @@ function Shell({ onDataChanged, upgrade }: { onDataChanged: () => void; upgrade:
         {route.name === 'history' && <HistoryPage initialModule={route.moduleId} initialQuiz={route.quizId} />}
         {route.name === 'help' && <HelpPage section={route.section} />}
         {route.name === 'settings' && <SettingsPage onDataChanged={onDataChanged} />}
-        {route.name === 'upload' && <UploadPage initialModule={route.moduleId} key={route.moduleId ?? 0} />}
+        {route.name === 'upload' && (
+          <UploadPage
+            initialModule={route.moduleId}
+            materialIds={route.materialIds ?? []}
+            quizId={route.quizId ?? null}
+            extend={!!route.extend}
+            key={`${route.moduleId ?? 0}-${route.quizId ?? 0}-${route.extend ? 1 : 0}-${(route.materialIds ?? []).join('.')}`}
+          />
+        )}
       </main>
     </div>
   )

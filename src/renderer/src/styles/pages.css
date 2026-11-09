@@ -2519,3 +2519,211 @@
   margin-top: 18px;
   max-width: 64ch;
 }
+
+/* ------------------------------------------------------------------ */
+/* Module materials                                                    */
+/* ------------------------------------------------------------------ */
+
+.materials {
+  position: relative;
+  border-radius: var(--radius-m);
+  transition: background var(--dur) var(--ease);
+}
+
+.materials.is-dropping {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 12px var(--accent-soft);
+}
+
+.materials-summary {
+  margin: -6px 0 12px;
+}
+
+.materials-table td {
+  vertical-align: middle;
+}
+
+.material-label {
+  min-width: 200px;
+}
+
+.label-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+}
+
+.label-btn svg {
+  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.label-btn:hover svg,
+.label-btn:focus-visible svg {
+  opacity: 1;
+}
+
+.inline-edit {
+  display: flex;
+  gap: 6px;
+}
+
+.inline-edit .input {
+  height: 32px;
+  min-width: 200px;
+}
+
+.material-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 380px;
+}
+
+.material-file .tag {
+  margin-left: 0;
+}
+
+.material-filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.td-action .icon-btn {
+  width: 32px;
+  height: 32px;
+}
+
+/* Material picker in the generate form */
+.material-pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-s);
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.material-pick-list li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.material-pick {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.material-pick input {
+  accent-color: var(--ink);
+  width: 16px;
+  height: 16px;
+}
+
+.material-pick-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.material-pick-name span:first-child {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.material-pick-tools {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.gen-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--radius-s);
+  background: var(--accent-soft);
+  font-size: 14px;
+}
+
+.gen-banner svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent-text);
+}
+
+.generated-from {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.generated-from ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.generated-from li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: var(--bg-sunk);
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.generated-from li.is-gone {
+  text-decoration: line-through;
+  color: var(--ink-3);
+}
+
+.save-to-module {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.save-to-module input {
+  accent-color: var(--ink);
+}
+
+.material-filename {
+  max-width: 30ch;
+}
+
+@media (max-width: 1100px) {
+  .material-filename {
+    max-width: 16ch;
+  }
+  .materials-table th:nth-child(3),
+  .materials-table td:nth-child(3) {
+    display: none;
+  }
+}

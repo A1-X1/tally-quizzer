@@ -154,6 +154,38 @@ export const MIGRATIONS: ((db: Database.Database) => void)[] = [
       ALTER TABLE responses ADD COLUMN marked_by TEXT;
       ALTER TABLE attempts ADD COLUMN needs_marking INTEGER NOT NULL DEFAULT 0;
     `)
+  },
+  // 4: a library of study material per module, and which material each generated quiz came from.
+  (db) => {
+    db.exec(`
+      CREATE TABLE materials (
+        id INTEGER PRIMARY KEY,
+        module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+        label TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content_sha256 TEXT NOT NULL,
+        bytes INTEGER NOT NULL,
+        chars INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        copy_name TEXT,
+        added_at TEXT NOT NULL,
+        UNIQUE (module_id, content_sha256)
+      );
+      CREATE INDEX materials_module ON materials(module_id);
+
+      CREATE TABLE quiz_version_materials (
+        id INTEGER PRIMARY KEY,
+        quiz_version_id INTEGER NOT NULL REFERENCES quiz_versions(id) ON DELETE CASCADE,
+        material_id INTEGER REFERENCES materials(id) ON DELETE SET NULL,
+        label TEXT NOT NULL,
+        filename TEXT NOT NULL
+      );
+      CREATE INDEX qvm_version ON quiz_version_materials(quiz_version_id);
+      CREATE INDEX qvm_material ON quiz_version_materials(material_id);
+
+      ALTER TABLE quiz_versions ADD COLUMN generation_json TEXT;
+    `)
   }
 ]
 

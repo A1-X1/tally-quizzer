@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAX_CSV_BYTES } from '../../../shared/api'
 import type { GenerateResult, ImportPreview, ModuleRow } from '../../../shared/types'
-import { GenerateForm } from '../components/GenerateForm'
+import { GenerateForm, type GenerateBase } from '../components/GenerateForm'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { ModuleDialog, nextColour } from '../components/ModuleForm'
@@ -12,7 +12,24 @@ import { go, href } from '../lib/router'
 
 type Loaded = { filename: string; text: string }
 
-export function UploadPage({ initialModule }: { initialModule: number | null }) {
+export function UploadPage({
+  initialModule,
+  materialIds = [],
+  quizId = null,
+  extend = false
+}: {
+  initialModule: number | null
+  materialIds?: number[]
+  quizId?: number | null
+  extend?: boolean
+}) {
+  const [base, setBase] = useState<GenerateBase | null>(null)
+  useEffect(() => {
+    if (!quizId) return
+    api('quizzes:detail', { id: quizId })
+      .then((d) => setBase({ quizId: d.quiz.id, title: d.quiz.title, extend, generation: d.generation }))
+      .catch(() => setBase(null))
+  }, [quizId, extend])
   const { data: modules, reload } = useLoad(() => api('modules:list', { includeArchived: false }), [])
   const [moduleId, setModuleId] = useState<number | null>(initialModule)
   const [file, setFile] = useState<Loaded | null>(null)
@@ -23,7 +40,7 @@ export function UploadPage({ initialModule }: { initialModule: number | null }) 
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [method, setMethod] = useState<'ai' | 'file' | null>(null)
+  const [method, setMethod] = useState<'ai' | 'file' | null>(materialIds.length || quizId ? 'ai' : null)
   const [aiInfo, setAiInfo] = useState<GenerateResult | null>(null)
   const toast = useToast()
   const dropRef = useRef<HTMLDivElement>(null)
@@ -96,7 +113,8 @@ export function UploadPage({ initialModule }: { initialModule: number | null }) 
         text: file.text,
         title,
         mode: asVersion ? 'version' : 'new',
-        targetQuizId: asVersion ? titleMatch.quizId : null
+        targetQuizId: asVersion ? titleMatch.quizId : null,
+        generation: aiInfo && file.filename === aiInfo.filename && file.text === aiInfo.csv ? aiInfo.generation : null
       })
       toast(
         res.versionNo > 1 ? `Saved “${res.title}” as version ${res.versionNo}.` : `Imported “${res.title}”.`,
@@ -188,9 +206,11 @@ export function UploadPage({ initialModule }: { initialModule: number | null }) 
                 </span>
               </button>
             </div>
-            {method === 'ai' && moduleId ? (
+            {method === 'ai' && moduleId && (!quizId || base) ? (
               <GenerateForm
                 moduleId={moduleId}
+                preselected={materialIds}
+                base={base}
                 onGenerated={(r) => {
                   setAiInfo(r)
                   setFile({ filename: r.filename, text: r.csv })
@@ -241,7 +261,10 @@ export function UploadPage({ initialModule }: { initialModule: number | null }) 
               <div className="notice" role="status" data-testid="ai-generated">
                 <Icon name="info" size={18} />
                 <p>
-                  Written by <span className="mono">{aiInfo.model}</span> and checked against Tally’s rules.
+                  {aiInfo.added !== null
+                    ? `${aiInfo.added} new ${aiInfo.added === 1 ? 'question' : 'questions'} added to the existing ones, `
+                    : 'Written '}
+                  by <span className="mono">{aiInfo.model}</span> and checked against Tally’s rules.
                   {aiInfo.dropped ? ` ${aiInfo.dropped} ${aiInfo.dropped === 1 ? 'question that broke the rules was' : 'questions that broke the rules were'} left out.` : ''}
                   {aiInfo.truncated ? ' Your files were longer than the limit, so only the first part of each was used.' : ''} Read
                   the sample below before saving.

@@ -1,6 +1,6 @@
 import { parseCsv, toCsv } from '../csv/parse'
 import { formatMarkScheme, validateQuizCsv } from '../csv/validate'
-import type { CsvIssue, GenerateFormat, GenerateRequest, MarkPoint } from '../../shared/types'
+import type { CsvIssue, GenerateFormat, GenerateRequest, MarkPoint, ParsedQuestion } from '../../shared/types'
 import type { ChatMessage } from './openrouter'
 
 export const CSV_HEADER = [
@@ -26,7 +26,7 @@ const FORMAT_RULES: Record<GenerateFormat, string> = {
   written: 'Every question is a "written" question that the student answers in their own words. Do not write any multiple-choice questions.'
 }
 
-export function buildGenerationMessages(req: GenerateRequest, material: string | null): ChatMessage[] {
+export function buildGenerationMessages(req: GenerateRequest, material: string | null, avoid: string[] = []): ChatMessage[] {
   const system = `You write revision quizzes for a student. You return ONLY a JSON object, with no commentary and no code fences.
 
 JSON shape:
@@ -79,6 +79,12 @@ Before answering, check every question against these rules.`
     `Topic: ${req.topic.trim()}`,
     `Number of questions: ${req.count}`,
     req.instructions?.trim() ? `Extra instructions from the student: ${req.instructions.trim()}` : null,
+    avoid.length
+      ? `The quiz already has these questions. Write ${req.count} NEW questions that test different points; do not repeat or rephrase these:\n${avoid
+          .slice(0, 120)
+          .map((p) => `- ${p.replace(/\s+/g, ' ').slice(0, 200)}`)
+          .join('\n')}`
+      : null,
     material ? `\n${material}` : null
   ]
     .filter(Boolean)
@@ -238,4 +244,26 @@ export function keepValidRows(csv: string): { csv: string; dropped: number } {
 
 function csvRows(csv: string): string[][] {
   return parseCsv(csv).records.map((r) => r.fields)
+}
+
+/** Serialise validated questions back to Tally's CSV format (all columns). */
+export function questionsToCsv(questions: ParsedQuestion[]): string {
+  return toCsv([
+    CSV_HEADER,
+    ...questions.map((q) =>
+      q.type === 'written'
+        ? [q.prompt, '', '', '', '', '', 'written', '', q.marks, q.explanation ?? '', q.topic ?? '', q.modelAnswer ?? '', formatMarkScheme(q.markScheme ?? [])]
+        : [
+            q.prompt,
+            ...q.options.map((o) => o.text),
+            q.type,
+            q.options.filter((o) => o.isCorrect).map((o) => o.label).join(';'),
+            q.marks,
+            q.explanation ?? '',
+            q.topic ?? '',
+            '',
+            ''
+          ]
+    )
+  ])
 }

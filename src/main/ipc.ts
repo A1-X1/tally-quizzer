@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { Channel, IpcEnvelope, Req, Res } from '../shared/api'
 import { MAX_CSV_BYTES, RELEASES_URL } from '../shared/api'
-import { MODULE_COLOURS, type HistoryFilter, type ImportResult } from '../shared/types'
+import { MODULE_COLOURS, type HistoryFilter, type ImportResult, type MaterialRow } from '../shared/types'
 import {
   adopt,
   afterOpen,
@@ -36,6 +36,7 @@ import * as modules from './services/modules'
 import * as quizzes from './services/quizzes'
 import * as attempts from './services/attempts'
 import * as analytics from './services/analytics'
+import * as materials from './services/materials'
 import { UserError } from './services/rows'
 import { toCsv } from './csv/parse'
 import templateCsv from '../../samples/template.csv?raw'
@@ -238,9 +239,22 @@ export function registerIpc(): void {
     modules.listModules(requireDb().db, req.includeArchived)
   )
   handle('modules:create', moduleInput, (req) => modules.createModule(requireDb().db, req))
-  handle('modules:update', z.object({ id, input: moduleInput }).strict(), (req) =>
-    modules.updateModule(requireDb().db, req.id, req.input)
-  )
+  handle('modules:update', z.object({ id, input: moduleInput }).strict(), (req) => {
+    const { db, dataDir } = requireDb()
+    const before = modules.getModule(db, req.id).name
+    const updated = modules.updateModule(db, req.id, req.input)
+    if (updated.name !== before) {
+      // Keep the readable copies of this module's materials with it.
+      const from = path.dirname(materials.copyPath(dataDir, before, 'x'))
+      const to = path.dirname(materials.copyPath(dataDir, updated.name, 'x'))
+      try {
+        if (fs.existsSync(from) && !fs.existsSync(to)) fs.renameSync(from, to)
+      } catch {
+        /* copies are a convenience */
+      }
+    }
+    return updated
+  })
   handle('modules:archive', z.object({ id, archived: z.boolean() }).strict(), (req) =>
     modules.archiveModule(requireDb().db, req.id, req.archived)
   )
@@ -250,6 +264,7 @@ export function registerIpc(): void {
     if (req.confirmName.trim() !== m.name) throw new UserError('The name you typed does not match the module name.')
     await createBackup(db, dataDir, 'pre-delete')
     modules.deleteModule(db, req.id, req.confirmName)
+    fs.rmSync(path.dirname(materials.copyPath(dataDir, m.name, 'x')), { recursive: true, force: true })
   })
   handle('modules:detail', z.object({ id }).strict(), (req) => analytics.moduleDetail(requireDb().db, req.id))
 
@@ -292,10 +307,26 @@ export function registerIpc(): void {
         text: csvText,
         title: text(200),
         mode: z.enum(['new', 'version']),
-        targetQuizId: id.nullable()
+        targetQuizId: id.nullable(),
+        generation: z
+          .object({
+            topic: z.string().max(2000),
+            count: z.number().int().min(1).max(200),
+            difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
+            format: z.enum(['choice', 'mixed', 'written']),
+            instructions: z.string().max(2000).nullable(),
+            model: z.string().max(200),
+            extended: z.boolean(),
+            materialIds: z.array(id).max(60),
+            oneOffNames: z.array(z.string().max(255)).max(20)
+          })
+          .strict()
+          .nullable()
+          .optional()
       })
       .strict(),
     (req) => {
+      if (req.generation?.materialIds.length) materials.materialSources(requireDb().db, req.moduleId, req.generation.materialIds)
       const result = quizzes.commitImport(requireDb().db, req)
       mirrorQuiz(result, req.moduleId, req.text)
       return result
@@ -558,11 +589,74 @@ export function registerIpc(): void {
         difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
         format: z.enum(['choice', 'mixed', 'written']),
         instructions: z.string().max(2000).nullable(),
-        sourceTokens: z.array(z.string().max(64)).max(10)
+        sourceTokens: z.array(z.string().max(64)).max(10),
+        materialIds: z.array(id).max(60),
+        extendQuizId: id.nullable()
       })
       .strict(),
     (req) => ai.generate(requireDb().db, req)
   )
+
+  // ----- Module materials -----
+  handle('materials:list', z.object({ moduleId: id }).strict(), (req) => {
+    const { db, dataDir } = requireDb()
+    return materials.listMaterials(db, dataDir, req.moduleId)
+  })
+  handle('materials:pick', z.object({ moduleId: id }).strict(), async (req, e) => {
+    const { db, dataDir } = requireDb()
+    const w = win(e)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Add study material to this module',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Study material', extensions: SOURCE_EXTENSIONS },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    }
+    const res = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
+    const added: MaterialRow[] = []
+    const problems: string[] = []
+    if (res.canceled) return { added, problems }
+    for (const f of res.filePaths.slice(0, 20)) {
+      try {
+        if (fs.statSync(f).size > MAX_SOURCE_BYTES) throw new Error(`“${path.basename(f)}” is larger than ${MAX_SOURCE_BYTES / 1024 / 1024} MB.`)
+        added.push(await materials.addMaterial(db, dataDir, req.moduleId, path.basename(f), new Uint8Array(fs.readFileSync(f))))
+      } catch (err) {
+        problems.push(err instanceof Error ? err.message.replace(/^[A-Z_]+::/, '') : String(err))
+      }
+    }
+    return { added, problems }
+  })
+  handle(
+    'materials:add',
+    z
+      .object({
+        moduleId: id,
+        name: z.string().min(1).max(255),
+        bytes: z.custom<Uint8Array>((v) => v instanceof Uint8Array && v.byteLength <= MAX_SOURCE_BYTES, 'File too large')
+      })
+      .strict(),
+    async (req) => {
+      const { db, dataDir } = requireDb()
+      try {
+        return await materials.addMaterial(db, dataDir, req.moduleId, req.name, req.bytes)
+      } catch (err) {
+        if (err instanceof UserError) throw err
+        throw new UserError(err instanceof Error ? err.message : String(err))
+      }
+    }
+  )
+  handle('materials:rename', z.object({ id, label: text(120) }).strict(), (req) => materials.renameMaterial(requireDb().db, req.id, req.label))
+  handle('materials:remove', z.object({ id }).strict(), (req) => {
+    const { db, dataDir } = requireDb()
+    materials.removeMaterial(db, dataDir, req.id)
+  })
+  handle('materials:show', z.object({ id }).strict(), (req) => {
+    const { db, dataDir } = requireDb()
+    const p = materials.materialCopyPath(db, dataDir, req.id)
+    if (!p) throw new UserError('The copy of this file is no longer in the materials folder. Its text is still saved, so it can still be used.')
+    shell.showItemInFolder(p)
+  })
 
   // ----- Onboarding -----
   handle('onboarding:get', null, () => {

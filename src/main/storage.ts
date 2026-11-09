@@ -263,7 +263,7 @@ export async function copyDataFolder(db: DB, fromDir: string, targetDir: string)
   if (fs.existsSync(targetDb)) throw new Error('The chosen folder already contains Tally data. Choose an empty folder.')
   ensureDataLayout(targetDir)
   await backupTo(db, targetDb)
-  for (const sub of [BACKUP_DIR, QUIZ_DIR]) {
+  for (const sub of [BACKUP_DIR, QUIZ_DIR, 'materials']) {
     const src = path.join(fromDir, sub)
     if (fs.existsSync(src)) fs.cpSync(src, path.join(targetDir, sub), { recursive: true, force: false, errorOnExist: false })
   }
@@ -283,6 +283,7 @@ export function removeOldData(dir: string): void {
   fs.rmSync(path.join(dir, `${DB_FILE}-journal`), { force: true })
   fs.rmSync(path.join(dir, BACKUP_DIR), { recursive: true, force: true })
   fs.rmSync(path.join(dir, QUIZ_DIR), { recursive: true, force: true })
+  fs.rmSync(path.join(dir, 'materials'), { recursive: true, force: true })
   try {
     if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir)
   } catch {

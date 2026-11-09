@@ -138,6 +138,33 @@ export function seedRealistic(userData: string, documents: string, theme: 'light
     edited: false
   })
 
+  // Study materials added over the term, two of them used to generate the written quiz.
+  const mats = [
+    ['Week 1 – Cell structure', 'BIOL1120 Lecture 1 Cell structure.pdf', 'pdf', 2_400_000, 18_200],
+    ['Week 2 – Membranes and transport', 'Lecture 2 - membranes.pptx', 'pptx', 5_100_000, 9_400],
+    ['Week 3 – Enzymes', 'week3_enzymes_notes.docx', 'docx', 310_000, 12_800],
+    ['Week 4 – Respiration', 'Lecture 4 Respiration.pdf', 'pdf', 3_200_000, 21_000]
+  ] as const
+  const matIds = mats.map(([label, file, kind, bytes, chars], i) =>
+    Number(
+      db
+        .prepare(
+          `INSERT INTO materials (module_id, label, filename, kind, content_sha256, bytes, chars, text, copy_name, added_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+        )
+        .run(cellModule, label, file, kind, `seed${i}`, bytes, chars, `${label} text`, new Date(now - (60 - i * 14) * 86_400_000).toISOString())
+        .lastInsertRowid
+    )
+  )
+  const wv = db.prepare('SELECT id FROM quiz_versions WHERE quiz_id = ?').pluck().get(wq.quizId) as number
+  for (const id of [matIds[1], matIds[2]]) {
+    db.prepare('INSERT INTO quiz_version_materials (quiz_version_id, material_id, label, filename) VALUES (?, ?, ?, ?)').run(wv, id, mats[matIds.indexOf(id)][0], mats[matIds.indexOf(id)][1])
+  }
+  db.prepare('UPDATE quiz_versions SET generation_json = ? WHERE id = ?').run(
+    JSON.stringify({ topic: 'Enzymes and membrane transport: explain, compare and apply', count: 3, difficulty: 'mixed', format: 'mixed', instructions: null, model: 'nvidia/nemotron-3-ultra-550b-a55b:free', extended: false }),
+    wv
+  )
+
   // An unfinished attempt to resume.
   const open = attempts.startAttempt(db, {
     quizId: quizIds[1].id,

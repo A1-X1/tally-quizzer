@@ -80,6 +80,7 @@ The first time Tally opens, it asks where to keep your data. The suggestion is `
 Tally Data/
 ├── userdata.sqlite   ← everything: modules, quizzes (including the original CSV text), attempts, settings
 ├── quizzes/          ← readable copies of your quiz CSVs, by module (a convenience; safe to delete)
+├── materials/        ← readable copies of the study files you add to modules (also safe to delete)
 └── backups/          ← automatic backups, the latest ten
 ```
 
@@ -142,6 +143,16 @@ Then choose **New quiz → Generate with AI**: describe the topic, optionally ad
 When AI features are used, the topic, the text of your files and your written answers are sent to OpenRouter and the model's provider. Nothing else leaves your computer, and Tally makes no other network requests.
 
 **In the AI chat you already use.** Help → *Create quizzes with AI* has step-by-step guides for Claude, ChatGPT and Gemini (including reusable Projects and Gems) and two prompts to copy: multiple choice, and with written answers. Save the reply as a `.csv` file and choose **New quiz → Import a file**.
+
+## Study materials
+
+Each module has a **Study materials** library. Add lecture slides, notes and handouts as the weeks go by (PDF, Word, PowerPoint or text; use *Add files…* or drop them onto the section), and give each a label such as "Week 3 – Membranes".
+
+- **Generate from any of them.** *Generate with AI* lists the module's materials as tick boxes (all, only the ones not quizzed yet, or any mix). You can still add a one-off file; by default new files are saved to the module too.
+- **See what isn't covered.** Each material shows whether any quiz has been made from it. *Quiz the new ones* starts a quiz from everything not quizzed yet.
+- **Quizzes remember their sources.** A generated quiz's page lists the topic, model and materials it came from, with **New version** (a fresh set of questions, saved as the next version) and **Add questions** (new questions that don't repeat the existing ones, added to them as the next version).
+
+The text of each material is stored in `userdata.sqlite`, which is all generation needs, so it moves, syncs and restores with the rest of your data. A readable copy of each original file is kept in `Tally Data/materials/<module>/`; like `quizzes/`, it's a convenience you can delete without breaking anything.
 
 ## Written answers
 

@@ -120,6 +120,14 @@ original brief.
 - **Onboarding** gains a second step: connect a key, or follow the Claude / ChatGPT / Gemini
   guides with copyable prompts. **Upload quiz** becomes **New quiz** (generate or import).
 
+- **Study materials (1.2.0).** Each module keeps a library of study files. Extracted text is
+  stored in `userdata.sqlite` (schema 4: `materials`, `quiz_version_materials`, and
+  `quiz_versions.generation_json`); the original file is copied to `Tally Data/materials/<module>/`
+  as a readable mirror, renamed with the module and removed with the material. Generation takes
+  any mix of saved materials and one-off files, records which it used, and supports *New version*
+  and *Add questions* (existing questions are passed as an avoid-list and merged into the next
+  version). Exact duplicate files are refused per module.
+
 ## Status
 
 All nine milestones are implemented. Unit tests and the packaged-app end-to-end suite run

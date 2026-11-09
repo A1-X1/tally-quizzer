@@ -13,6 +13,7 @@ import type {
 } from '../../shared/types'
 import { getModule, getQuizRow } from './modules'
 import { quizTiming } from './analytics'
+import { generationInfo, recordGeneration } from './materials'
 import { ATTEMPT_SELECT, mapAttempt, type RawAttemptRow, UserError } from './rows'
 
 export function sha256(text: string): string {
@@ -137,6 +138,7 @@ export function commitImport(db: DB, req: ImportRequest): ImportResult {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     const insO = db.prepare('INSERT INTO options (question_id, label, text, is_correct) VALUES (?, ?, ?, ?)')
+    if (req.generation) recordGeneration(db, versionId, req.generation)
     v.questions.forEach((q, i) => {
       const qInfo = insQ.run(
         versionId,
@@ -224,7 +226,8 @@ export function quizDetail(db: DB, id: number): QuizDetail {
     best: pick(bestRow),
     last: pick(lastRow),
     attempts,
-    timing: quizTiming(db, id)
+    timing: quizTiming(db, id),
+    generation: versions[0] ? generationInfo(db, versions[0].id) : null
   }
 }
 

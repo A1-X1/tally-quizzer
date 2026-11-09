@@ -4,6 +4,7 @@ import { AttemptsTable } from '../components/AttemptsTable'
 import { Icon } from '../components/Icon'
 import { LineChart } from '../components/LineChart'
 import { HBars } from '../components/Charts'
+import { MaterialsSection } from '../components/Materials'
 import { ModuleDialog } from '../components/ModuleForm'
 import { RichText } from '../components/RichText'
 import { Dialog, Empty, ErrorNote, Field, Loading, Score, Swatch, Toggle, Trend, useLoad, useToast } from '../components/ui'
@@ -173,6 +174,8 @@ export function ModulePage({ id }: { id: number }) {
           </div>
         )}
       </section>
+
+      <MaterialsSection moduleId={m.id} archived={!!m.archivedAt} />
 
       <section className="section" aria-labelledby="t-h">
         <div className="section-head">

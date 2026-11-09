@@ -268,8 +268,9 @@ export function HelpPage({ section }: { section: string | null }) {
               <div>
                 <h3 className="h-small">In Tally, with an OpenRouter key</h3>
                 <p className="muted">
-                  Choose <strong>New quiz → Generate with AI</strong>, describe the topic, add your PDFs, Word files or
-                  slides, and pick multiple choice, written or mixed. Tally checks every question before you save it, and
+                  Add your PDFs, Word files and slides to a module’s <strong>Study materials</strong> as the weeks go by,
+                  then choose <strong>New quiz → Generate with AI</strong>, tick the materials to use, describe the topic and
+                  pick multiple choice, written or mixed. Tally checks every question before you save it, and
                   marks written answers against their mark schemes. One OpenRouter key gives access to Claude, GPT,
                   Gemini and free models. Set it up in <a href={href({ name: 'settings' })}>Settings → AI</a>.
                 </p>

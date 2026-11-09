@@ -1,6 +1,7 @@
 import type {
   AiModel,
   AiStatus,
+  MaterialRow,
   GenerateRequest,
   GenerateResult,
   SourceFile,
@@ -96,6 +97,12 @@ export interface IpcContract {
   'ai:dropSource': [{ token: string }, void]
   'ai:generate': [GenerateRequest, GenerateResult]
   'ai:openKeysPage': [void, void]
+  'materials:list': [{ moduleId: number }, MaterialRow[]]
+  'materials:pick': [{ moduleId: number }, { added: MaterialRow[]; problems: string[] }]
+  'materials:add': [{ moduleId: number; name: string; bytes: Uint8Array }, MaterialRow]
+  'materials:rename': [{ id: number; label: string }, void]
+  'materials:remove': [{ id: number }, void]
+  'materials:show': [{ id: number }, void]
   'attempts:answerWritten': [{ attemptId: number; questionId: number; text: string }, void]
   'attempts:markWritten': [{ attemptId: number; questionId: number }, QuestionFeedback]
   'attempts:adjustMarks': [{ attemptId: number; questionId: number; awarded: number[] }, AttemptResult]
@@ -177,6 +184,12 @@ export const CHANNELS = [
   'ai:dropSource',
   'ai:generate',
   'ai:openKeysPage',
+  'materials:list',
+  'materials:pick',
+  'materials:add',
+  'materials:rename',
+  'materials:remove',
+  'materials:show',
   'attempts:answerWritten',
   'attempts:markWritten',
   'attempts:adjustMarks',

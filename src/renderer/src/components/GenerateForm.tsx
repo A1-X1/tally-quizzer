@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { AiStatus, Difficulty, GenerateFormat, GenerateResult, SourceFile } from '../../../shared/types'
+import type { AiStatus, Difficulty, GenerateFormat, GenerateResult, GenerationInfo, MaterialRow, SourceFile } from '../../../shared/types'
+import { addDroppedMaterials } from './Materials'
 import { api, errorMessage } from '../api'
 import { AiConnection } from './AiSetup'
 import { Icon } from './Icon'
@@ -8,13 +9,36 @@ import { ErrorNote, Field, Segmented } from './ui'
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 const STAGES = ['Reading your material', 'Writing questions', 'Checking every question against the rules', 'Almost there']
 
-export function GenerateForm({ moduleId, onGenerated }: { moduleId: number; onGenerated: (r: GenerateResult) => void }) {
+export interface GenerateBase {
+  quizId: number
+  title: string
+  extend: boolean
+  generation: GenerationInfo | null
+}
+
+export function GenerateForm({
+  moduleId,
+  preselected = [],
+  base = null,
+  onGenerated
+}: {
+  moduleId: number
+  preselected?: number[]
+  base?: GenerateBase | null
+  onGenerated: (r: GenerateResult) => void
+}) {
+  const g = base?.generation ?? null
   const [status, setStatus] = useState<AiStatus | null>(null)
-  const [topic, setTopic] = useState('')
-  const [format, setFormat] = useState<GenerateFormat>('choice')
-  const [count, setCount] = useState(10)
-  const [difficulty, setDifficulty] = useState<Difficulty>('mixed')
-  const [instructions, setInstructions] = useState('')
+  const [topic, setTopic] = useState(g?.topic ?? (base ? base.title : ''))
+  const [format, setFormat] = useState<GenerateFormat>(g?.format ?? 'choice')
+  const [count, setCount] = useState(base?.extend ? 5 : (g?.count ?? 10))
+  const [difficulty, setDifficulty] = useState<Difficulty>(g?.difficulty ?? 'mixed')
+  const [instructions, setInstructions] = useState(g?.instructions ?? '')
+  const [library, setLibrary] = useState<MaterialRow[] | null>(null)
+  const [chosen, setChosen] = useState<Set<number>>(
+    () => new Set(preselected.length ? preselected : (g?.materials.filter((m) => m.available && m.materialId !== null).map((m) => m.materialId as number) ?? []))
+  )
+  const [saveToModule, setSaveToModule] = useState(true)
   const [sources, setSources] = useState<SourceFile[]>([])
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -25,6 +49,21 @@ export function GenerateForm({ moduleId, onGenerated }: { moduleId: number; onGe
   useEffect(() => {
     api('ai:status').then(setStatus).catch(() => undefined)
   }, [])
+
+  const loadLibrary = (): void => {
+    api('materials:list', { moduleId })
+      .then(setLibrary)
+      .catch(() => setLibrary([]))
+  }
+  useEffect(loadLibrary, [moduleId])
+
+  const toggle = (id: number): void =>
+    setChosen((c) => {
+      const n = new Set(c)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
 
   useEffect(() => {
     if (!busy) return
@@ -37,6 +76,13 @@ export function GenerateForm({ moduleId, onGenerated }: { moduleId: number; onGe
     setError(null)
     setAdding(true)
     try {
+      if (saveToModule) {
+        const r = await addDroppedMaterials(moduleId, files)
+        setChosen((c) => new Set([...c, ...r.added.map((m) => m.id)]))
+        if (r.problems.length) setError(r.problems.join(' '))
+        loadLibrary()
+        return
+      }
       for (const f of files.slice(0, 10 - sources.length)) {
         if (f.size > MAX_FILE_BYTES) throw new Error(`“${f.name}” is larger than 25 MB.`)
         const s = await api('ai:addSource', { name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })
@@ -53,6 +99,13 @@ export function GenerateForm({ moduleId, onGenerated }: { moduleId: number; onGe
     setError(null)
     setAdding(true)
     try {
+      if (saveToModule) {
+        const r = await api('materials:pick', { moduleId })
+        setChosen((c) => new Set([...c, ...r.added.map((m) => m.id)]))
+        if (r.problems.length) setError(r.problems.join(' '))
+        loadLibrary()
+        return
+      }
       const picked = await api('ai:pickSources')
       setSources((x) => [...x, ...picked].slice(0, 10))
     } catch (e) {
@@ -73,7 +126,9 @@ export function GenerateForm({ moduleId, onGenerated }: { moduleId: number; onGe
         difficulty,
         format,
         instructions: instructions.trim() || null,
-        sourceTokens: sources.map((s) => s.token)
+        sourceTokens: sources.map((s) => s.token),
+        materialIds: [...chosen].filter((id) => library?.some((m) => m.id === id)),
+        extendQuizId: base?.extend ? base.quizId : null
       })
       onGenerated(r)
     } catch (e) {
@@ -97,11 +152,31 @@ export function GenerateForm({ moduleId, onGenerated }: { moduleId: number; onGe
     )
   }
 
-  const totalChars = sources.reduce((s, x) => s + x.chars, 0)
+  const picked = (library ?? []).filter((m) => chosen.has(m.id))
+  const totalChars = sources.reduce((s, x) => s + x.chars, 0) + picked.reduce((s, x) => s + x.chars, 0)
+  const anyMaterial = picked.length + sources.length > 0
   const stage = STAGES[Math.min(STAGES.length - 1, Math.floor(elapsed / 12))]
 
   return (
     <div className="generate" aria-busy={busy}>
+      {base ? (
+        <div className="gen-banner" role="status">
+          <Icon name="info" size={16} />
+          <span>
+            {base.extend ? (
+              <>
+                Adding new questions to <strong>{base.title}</strong>. Its current questions are kept and the AI is told not to
+                repeat them; you save the result as the next version.
+              </>
+            ) : (
+              <>
+                Writing a fresh set of questions for <strong>{base.title}</strong>, saved as its next version. Past attempts keep
+                the questions they were taken on.
+              </>
+            )}
+          </span>
+        </div>
+      ) : null}
       <Field label="What is the quiz about?" htmlFor="gen-topic" hint="Be specific: the course, the chapter, and what you need to be able to do.">
         <textarea
           id="gen-topic"
@@ -117,6 +192,36 @@ export function GenerateForm({ moduleId, onGenerated }: { moduleId: number; onGe
 
       <div className="field">
         <span className="field-label">Study material (optional, more accurate)</span>
+        {library && library.length ? (
+          <>
+            <div className="material-pick-tools">
+              <span className="faint small">From this module:</span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setChosen(new Set(library.map((m) => m.id)))}>
+                All
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setChosen(new Set(library.filter((m) => m.usedBy === 0).map((m) => m.id)))}>
+                Not quizzed yet
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setChosen(new Set())}>
+                None
+              </button>
+            </div>
+            <ul className="material-pick-list" aria-label="Module materials">
+              {library.map((m) => (
+                <li key={m.id}>
+                  <label className="material-pick">
+                    <input type="checkbox" checked={chosen.has(m.id)} onChange={() => toggle(m.id)} />
+                    <span className="material-pick-name">
+                      <span>{m.label}</span>
+                      <span className="faint small clamp-1">{m.filename}</span>
+                    </span>
+                    {m.usedBy === 0 ? <span className="tag tag-live">New</span> : <span className="faint small">used {m.usedBy}×</span>}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
         <div
           className={dragging ? 'dropzone dropzone-sm is-over' : 'dropzone dropzone-sm'}
           onDragOver={(e) => {
@@ -130,7 +235,7 @@ export function GenerateForm({ moduleId, onGenerated }: { moduleId: number; onGe
             void addFiles([...e.dataTransfer.files])
           }}
         >
-          <p>Drop PDFs, Word documents, PowerPoint slides or text files here, or</p>
+          <p>{library && library.length ? 'Add more:' : 'Drop PDFs, Word documents, PowerPoint slides or text files here, or'}</p>
           <button type="button" className="btn btn-secondary btn-sm" onClick={pick} disabled={adding || busy || sources.length >= 10}>
             <Icon name="plus" size={14} /> {adding ? 'Reading…' : 'Add files…'}
           </button>
@@ -157,9 +262,13 @@ export function GenerateForm({ moduleId, onGenerated }: { moduleId: number; onGe
             ))}
           </ul>
         ) : null}
+        <label className="save-to-module">
+          <input type="checkbox" checked={saveToModule} onChange={(e) => setSaveToModule(e.target.checked)} />
+          <span>Save new files to this module’s materials, so they can be used again</span>
+        </label>
         <p className="field-hint">
-          {sources.length
-            ? `Questions will be based only on these files${totalChars > 150_000 ? '; they are long, so the first part of each is used' : ''}.`
+          {anyMaterial
+            ? `Questions will be based only on the ${picked.length + sources.length === 1 ? 'chosen file' : `${picked.length + sources.length} chosen files`}${totalChars > 150_000 ? '; together they are long, so the first part of each is used' : ''}.`
             : 'With files, every question and answer is taken from your material, not general knowledge.'}
         </p>
       </div>
@@ -228,7 +337,7 @@ export function GenerateForm({ moduleId, onGenerated }: { moduleId: number; onGe
           disabled={busy || topic.trim().length < 3}
           data-testid="generate"
         >
-          <Icon name="play" size={16} /> {busy ? 'Generating…' : `Generate ${count} questions`}
+          <Icon name="play" size={16} /> {busy ? 'Generating…' : base?.extend ? `Add ${count} questions` : `Generate ${count} questions`}
         </button>
         <span className="faint small">
           Model: <span className="mono">{status.model ?? 'not chosen'}</span> · <a href="#/settings">change</a>
