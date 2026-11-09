@@ -58,9 +58,10 @@ export function previewImport(db: DB, moduleId: number, filename: string, text: 
   // Prefer a varied sample: the first single and the first multi question, then the rest.
   const firstSingle = qs.find((q) => q.type === 'single')
   const firstMulti = qs.find((q) => q.type === 'multi')
-  const sample = [firstSingle, firstMulti, ...qs]
+  const firstWritten = qs.find((q) => q.type === 'written')
+  const sample = [firstSingle, firstMulti, firstWritten, ...qs]
     .filter((q, i, arr): q is NonNullable<typeof q> => !!q && arr.indexOf(q) === i)
-    .slice(0, 3)
+    .slice(0, 4)
   return {
     ok: v.ok,
     errors: v.errors,
@@ -71,6 +72,7 @@ export function previewImport(db: DB, moduleId: number, filename: string, text: 
     totalMarks: qs.reduce((s, q) => s + q.marks, 0),
     singleCount: qs.filter((q) => q.type === 'single').length,
     multiCount: qs.filter((q) => q.type === 'multi').length,
+    writtenCount: qs.filter((q) => q.type === 'written').length,
     topics,
     sample,
     duplicateOf: v.ok ? findDuplicate(db, moduleId, hash) : null,
@@ -131,12 +133,22 @@ export function commitImport(db: DB, req: ImportRequest): ImportResult {
       .run(quizId, versionNo, hash, req.filename.slice(0, 255), req.text, v.questions.length, totalMarks, now)
     const versionId = Number(vInfo.lastInsertRowid)
     const insQ = db.prepare(
-      `INSERT INTO questions (quiz_version_id, position, prompt, type, marks, explanation, topic)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO questions (quiz_version_id, position, prompt, type, marks, explanation, topic, model_answer, mark_scheme_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     const insO = db.prepare('INSERT INTO options (question_id, label, text, is_correct) VALUES (?, ?, ?, ?)')
     v.questions.forEach((q, i) => {
-      const qInfo = insQ.run(versionId, i + 1, q.prompt, q.type, q.marks, q.explanation, q.topic)
+      const qInfo = insQ.run(
+        versionId,
+        i + 1,
+        q.prompt,
+        q.type,
+        q.marks,
+        q.explanation,
+        q.topic,
+        q.type === 'written' ? (q.modelAnswer ?? null) : null,
+        q.type === 'written' ? JSON.stringify(q.markScheme ?? []) : null
+      )
       const qid = Number(qInfo.lastInsertRowid)
       for (const o of q.options) insO.run(qid, o.label, o.text, o.isCorrect ? 1 : 0)
     })
@@ -155,9 +167,10 @@ function versionInfo(db: DB, row: {
 }): QuizVersionInfo {
   const counts = db
     .prepare(
-      `SELECT SUM(type = 'single') AS s, SUM(type = 'multi') AS m FROM questions WHERE quiz_version_id = ?`
+      `SELECT SUM(type = 'single') AS s, SUM(type = 'multi') AS m, SUM(type = 'written') AS w
+       FROM questions WHERE quiz_version_id = ?`
     )
-    .get(row.id) as { s: number | null; m: number | null }
+    .get(row.id) as { s: number | null; m: number | null; w: number | null }
   const topics = db
     .prepare(
       `SELECT topic FROM questions WHERE quiz_version_id = ? AND topic IS NOT NULL
@@ -174,6 +187,7 @@ function versionInfo(db: DB, row: {
     importedAt: row.imported_at,
     singleCount: counts.s ?? 0,
     multiCount: counts.m ?? 0,
+    writtenCount: counts.w ?? 0,
     topics
   }
 }

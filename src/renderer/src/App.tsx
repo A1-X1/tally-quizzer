@@ -17,6 +17,7 @@ import { SettingsPage } from './pages/Settings'
 import { TakeQuiz } from './pages/TakeQuiz'
 import { UploadPage } from './pages/Upload'
 import { Welcome } from './pages/Welcome'
+import { Onboarding } from './pages/Onboarding'
 
 export function App() {
   const [boot, setBoot] = useState<BootState | null>(null)
@@ -63,6 +64,12 @@ function Shell({ onDataChanged, upgrade }: { onDataChanged: () => void; upgrade:
   const focused = route.name === 'attempt'
   const toast = useToast()
   const [available, setAvailable] = useState<string | null>(null)
+  const [onboarded, setOnboarded] = useState<boolean | null>(null)
+  useEffect(() => {
+    api('onboarding:get')
+      .then(setOnboarded)
+      .catch(() => setOnboarded(true))
+  }, [])
 
   // After an update: say so, once. Then, only if the user opted in, check for a newer version.
   useEffect(() => {
@@ -91,6 +98,16 @@ function Shell({ onDataChanged, upgrade }: { onDataChanged: () => void; upgrade:
       h1.focus({ preventScroll: true })
     }
   }, [route])
+
+  if (onboarded === null) return <Loading />
+  if (!onboarded) {
+    return (
+      <>
+        <div className="titlebar titlebar-bare" aria-hidden="true" />
+        <Onboarding onDone={() => setOnboarded(true)} />
+      </>
+    )
+  }
 
   return (
     <div className={focused ? 'shell shell-focused' : 'shell'}>

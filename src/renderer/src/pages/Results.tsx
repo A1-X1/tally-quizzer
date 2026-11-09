@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import type { AttemptResult, ReviewQuestion } from '../../../shared/types'
+import { useEffect, useState } from 'react'
+import type { AiStatus, AttemptResult, ReviewQuestion } from '../../../shared/types'
+import { MarkEditor, MarkingTable } from '../components/Marking'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { TypeBadge } from '../components/QuestionView'
@@ -12,7 +13,14 @@ import { go, href } from '../lib/router'
 type Filter = 'all' | 'wrong' | 'flagged'
 
 export function ResultsPage({ id }: { id: number }) {
-  const { data, error } = useLoad(() => api('attempts:result', { id }), [id])
+  const { data: loaded, error } = useLoad(() => api('attempts:result', { id }), [id])
+  const [override, setOverride] = useState<AttemptResult | null>(null)
+  const data = override ?? loaded
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null)
+  const [markingAll, setMarkingAll] = useState(false)
+  useEffect(() => {
+    api('ai:status').then(setAiStatus).catch(() => undefined)
+  }, [])
   const [filter, setFilter] = useState<Filter>('all')
   const [busy, setBusy] = useState(false)
   const toast = useToast()
@@ -53,6 +61,47 @@ export function ResultsPage({ id }: { id: number }) {
         <a href={href({ name: 'quiz', id: a.quizId })}>{a.quizTitle}</a>
         <span className="faint num">v{a.versionNo}</span>
       </p>
+
+      {data.needsMarking > 0 ? (
+        <div className="marking-banner" role="status" data-testid="needs-marking">
+          <Icon name="edit" size={18} />
+          <p>
+            <strong>
+              {data.needsMarking} written {data.needsMarking === 1 ? 'answer needs' : 'answers need'} marking.
+            </strong>{' '}
+            The score below counts {data.needsMarking === 1 ? 'it' : 'them'} as zero until then.
+          </p>
+          <div className="row-actions">
+            {aiStatus?.configured ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={markingAll}
+                onClick={async () => {
+                  setMarkingAll(true)
+                  try {
+                    setOverride(await api('attempts:markPending', { id: a.id }))
+                  } catch (e) {
+                    toast(errorMessage(e), 'bad')
+                    setOverride(await api('attempts:result', { id: a.id }))
+                  } finally {
+                    setMarkingAll(false)
+                  }
+                }}
+              >
+                {markingAll ? 'Marking…' : 'Mark with AI'}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => document.querySelector('[data-unmarked="true"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
+            >
+              Mark them myself
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <section className="result-hero" aria-labelledby="result-h">
         <div className="result-score">
@@ -220,7 +269,7 @@ export function ResultsPage({ id }: { id: number }) {
         ) : (
           <ol className="review-list">
             {questions.map((q) => (
-              <ReviewItem key={q.id} q={q} />
+              <ReviewItem key={q.id} q={q} attemptId={a.id} onUpdated={setOverride} />
             ))}
           </ol>
         )}
@@ -229,15 +278,16 @@ export function ResultsPage({ id }: { id: number }) {
   )
 }
 
-function ReviewItem({ q }: { q: ReviewQuestion }) {
-  const verdict = q.isCorrect ? 'right' : q.marksAwarded > 0 ? 'part' : 'wrong'
+function ReviewItem({ q, attemptId, onUpdated }: { q: ReviewQuestion; attemptId: number; onUpdated: (r: AttemptResult) => void }) {
+  const unmarked = !!q.written && !q.written.marking
+  const verdict = unmarked ? 'pending' : q.isCorrect ? 'right' : q.marksAwarded > 0 ? 'part' : 'wrong'
   return (
-    <li className={`review review-${verdict}`} data-testid="review-item">
+    <li className={`review review-${verdict}`} data-testid="review-item" data-unmarked={unmarked ? 'true' : undefined}>
       <header className="review-head">
         <span className="question-n question-n-sm num">{String(q.displayPosition).padStart(2, '0')}</span>
         <span className={`verdict verdict-${verdict}`}>
-          <Icon name={q.isCorrect ? 'check' : 'cross'} size={14} weight={2.6} />
-          {q.isCorrect ? 'Correct' : !q.answered ? 'Not answered' : q.marksAwarded > 0 ? 'Partly right' : 'Wrong'}
+          <Icon name={unmarked ? 'edit' : q.isCorrect ? 'check' : 'cross'} size={14} weight={2.6} />
+          {unmarked ? 'Needs marking' : q.isCorrect ? 'Correct' : !q.answered ? 'Not answered' : q.marksAwarded > 0 ? 'Partly right' : 'Wrong'}
         </span>
         <TypeBadge type={q.type} />
         {q.topic ? <span className="tag">{q.topic}</span> : null}
@@ -258,6 +308,7 @@ function ReviewItem({ q }: { q: ReviewQuestion }) {
       <p className="review-prompt">
         <RichText text={q.prompt} />
       </p>
+      {q.written ? <WrittenReviewBlock q={q} attemptId={attemptId} onUpdated={onUpdated} /> : null}
       <ul className="review-options">
         {q.options.map((o) => {
           const chosen = q.selected.includes(o.id)
@@ -406,5 +457,66 @@ function TimeBreakdown({ data }: { data: AttemptResult }) {
         </div>
       )}
     </section>
+  )
+}
+
+function WrittenReviewBlock({ q, attemptId, onUpdated }: { q: ReviewQuestion; attemptId: number; onUpdated: (r: AttemptResult) => void }) {
+  const w = q.written!
+  const [editing, setEditing] = useState(!w.marking && !!q.writtenAnswer?.trim())
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  const save = async (awarded: number[]): Promise<void> => {
+    setBusy(true)
+    try {
+      onUpdated(await api('attempts:adjustMarks', { attemptId, questionId: q.id, awarded }))
+      setEditing(false)
+      toast('Marks saved.', 'good')
+    } catch (e) {
+      toast(errorMessage(e), 'bad')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="written-review">
+      <div className="your-answer">
+        <span className="mini-h">Your answer</span>
+        {q.writtenAnswer?.trim() ? <p className="your-answer-text">{q.writtenAnswer}</p> : <p className="faint">No answer given.</p>}
+      </div>
+      {editing ? (
+        <MarkEditor
+          scheme={w.markScheme}
+          initial={w.marking ? w.marking.points.map((p) => p.awarded) : null}
+          onSave={save}
+          onCancel={w.marking ? () => setEditing(false) : undefined}
+          busy={busy}
+        />
+      ) : (
+        <>
+          <MarkingTable scheme={w.markScheme} marking={w.marking} />
+          {w.marking?.feedback ? <p className="marking-feedback">{w.marking.feedback}</p> : null}
+          <p className="faint small marking-by">
+            {w.marking
+              ? w.marking.markedBy === 'ai'
+                ? `Marked by ${w.marking.model ?? 'AI'} against the mark scheme${w.marking.edited ? ', then adjusted by you' : ''}.`
+                : w.marking.markedBy === 'auto'
+                  ? 'No answer, so no marks.'
+                  : 'Marked by you.'
+              : 'Not marked yet.'}{' '}
+            {q.writtenAnswer?.trim() ? (
+              <button type="button" className="link-btn" onClick={() => setEditing(true)} data-testid="adjust-marks">
+                {w.marking ? 'Change marks' : 'Mark it'}
+              </button>
+            ) : null}
+          </p>
+        </>
+      )}
+      <div className="model-answer">
+        <span className="mini-h">Model answer</span>
+        <p>
+          <RichText text={w.modelAnswer} />
+        </p>
+      </div>
+    </div>
   )
 }

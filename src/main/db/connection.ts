@@ -20,12 +20,23 @@ export function migrate(db: DB): void {
       `This data was created by a newer version of Tally (schema ${current}). Update Tally to open it.`
     )
   }
-  for (let v = current; v < SCHEMA_VERSION; v++) {
-    const step = db.transaction(() => {
-      MIGRATIONS[v](db)
-      db.pragma(`user_version = ${v + 1}`)
-    })
-    step()
+  if (current < SCHEMA_VERSION) {
+    // Some migrations rebuild tables, which must happen with foreign keys off so that
+    // dropping the old table does not cascade. Integrity is checked before switching them back on.
+    db.pragma('foreign_keys = OFF')
+    try {
+      for (let v = current; v < SCHEMA_VERSION; v++) {
+        const step = db.transaction(() => {
+          MIGRATIONS[v](db)
+          const broken = db.pragma('foreign_key_check') as unknown[]
+          if (broken.length > 0) throw new Error(`Migration ${v + 1} left ${broken.length} broken references.`)
+          db.pragma(`user_version = ${v + 1}`)
+        })
+        step()
+      }
+    } finally {
+      db.pragma('foreign_keys = ON')
+    }
   }
   if ((db.pragma('application_id', { simple: true }) as number) !== APPLICATION_ID) {
     db.pragma(`application_id = ${APPLICATION_ID}`)

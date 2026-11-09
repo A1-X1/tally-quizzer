@@ -1,4 +1,9 @@
 import type {
+  AiModel,
+  AiStatus,
+  GenerateRequest,
+  GenerateResult,
+  SourceFile,
   AnswerRequest,
   AttemptListRow,
   AttemptResult,
@@ -79,6 +84,24 @@ export interface IpcContract {
   'updates:open': [{ url: string }, void]
   'updates:getAutoCheck': [void, boolean]
   'updates:setAutoCheck': [{ enabled: boolean }, void]
+  'ai:status': [void, AiStatus]
+  'ai:saveKey': [{ key: string }, { label: string; freeTier: boolean; model: string | null }]
+  'ai:forgetKey': [void, void]
+  'ai:models': [void, AiModel[]]
+  'ai:setModel': [{ model: string }, void]
+  'ai:setMarking': [{ on: boolean }, void]
+  'ai:testModel': [{ model: string }, { ok: true; seconds: number } | { ok: false; error: string }]
+  'ai:pickSources': [void, SourceFile[]]
+  'ai:addSource': [{ name: string; bytes: Uint8Array }, SourceFile]
+  'ai:dropSource': [{ token: string }, void]
+  'ai:generate': [GenerateRequest, GenerateResult]
+  'ai:openKeysPage': [void, void]
+  'attempts:answerWritten': [{ attemptId: number; questionId: number; text: string }, void]
+  'attempts:markWritten': [{ attemptId: number; questionId: number }, QuestionFeedback]
+  'attempts:adjustMarks': [{ attemptId: number; questionId: number; awarded: number[] }, AttemptResult]
+  'attempts:markPending': [{ id: number }, AttemptResult]
+  'onboarding:get': [void, boolean]
+  'onboarding:done': [void, void]
   'settings:getTheme': [void, ThemePreference]
   'settings:setTheme': [{ theme: ThemePreference }, void]
 
@@ -142,6 +165,24 @@ export const CHANNELS = [
   'updates:open',
   'updates:getAutoCheck',
   'updates:setAutoCheck',
+  'ai:status',
+  'ai:saveKey',
+  'ai:forgetKey',
+  'ai:models',
+  'ai:setModel',
+  'ai:setMarking',
+  'ai:testModel',
+  'ai:pickSources',
+  'ai:addSource',
+  'ai:dropSource',
+  'ai:generate',
+  'ai:openKeysPage',
+  'attempts:answerWritten',
+  'attempts:markWritten',
+  'attempts:adjustMarks',
+  'attempts:markPending',
+  'onboarding:get',
+  'onboarding:done',
   'settings:getTheme',
   'settings:setTheme',
   'data:info',

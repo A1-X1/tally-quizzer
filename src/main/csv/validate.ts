@@ -2,6 +2,7 @@ import { MAX_QUESTIONS } from '../../shared/api'
 import {
   OPTION_LABELS,
   type CsvIssue,
+  type MarkPoint,
   type OptionLabel,
   type ParsedQuestion,
   type QuestionType
@@ -18,7 +19,7 @@ export const REQUIRED_COLUMNS = [
   'type',
   'correct'
 ] as const
-export const OPTIONAL_COLUMNS = ['marks', 'explanation', 'topic'] as const
+export const OPTIONAL_COLUMNS = ['marks', 'explanation', 'topic', 'model_answer', 'mark_scheme'] as const
 const KNOWN = new Set<string>([...REQUIRED_COLUMNS, ...OPTIONAL_COLUMNS])
 const OPTION_COLUMNS = ['option_a', 'option_b', 'option_c', 'option_d', 'option_e'] as const
 
@@ -219,13 +220,76 @@ export function validateQuizCsv(text: string): QuizValidation {
     const prompt = get(f, 'question')
     if (prompt === '') err('question', 'The question text is empty.', 'Write the question in the "question" column.')
 
+    const typeRaw = get(f, 'type').toLowerCase()
+    let type: QuestionType | null = null
+    if (typeRaw === 'single' || typeRaw === 'multi' || typeRaw === 'written') type = typeRaw
+    else if (typeRaw === '') err('type', 'The type is empty.', 'Write "single" (one answer), "multi" (several answers) or "written" (a typed answer).')
+    else err('type', `"${get(f, 'type')}" is not a valid type.`, 'Use "single", "multi" or "written".')
+
     const optionTexts = OPTION_COLUMNS.map((c) => get(f, c))
+    const marksRaw = index.has('marks') ? get(f, 'marks') : ''
+    let marks: number | null = null
+    if (marksRaw !== '') {
+      const v = Number(marksRaw)
+      if (!/^\d*\.?\d+$/.test(marksRaw) || !Number.isFinite(v) || v <= 0) {
+        err('marks', `"${marksRaw}" is not a positive number.`, 'Use a number greater than 0, such as 1 or 2.5, or leave it empty.')
+      } else if (v > 1000) {
+        err('marks', `${marksRaw} marks is more than the limit of 1000.`, 'Use a smaller number of marks.')
+      } else {
+        marks = v
+      }
+    }
+    const explanation = index.has('explanation') ? get(f, 'explanation') || null : null
+    const topic = index.has('topic') ? get(f, 'topic') || null : null
+
+    // ----- Written questions -----
+    if (type === 'written') {
+      const filled = OPTION_COLUMNS.filter((_, i) => optionTexts[i] !== '')
+      if (filled.length > 0) {
+        err(filled[0], 'Written questions do not have options.', 'Leave option_a to option_e empty for a written question, or change its type to "single" or "multi".')
+      }
+      if (get(f, 'correct') !== '') {
+        err('correct', 'Written questions do not use the "correct" column.', 'Leave "correct" empty and put the expected answer in "model_answer" and the marking points in "mark_scheme".')
+      }
+      const modelAnswer = index.has('model_answer') ? get(f, 'model_answer') : ''
+      if (!index.has('model_answer') || modelAnswer === '') {
+        err('model_answer', 'A written question needs a model answer.', 'Add a "model_answer" column with a full-mark answer, written as a student should.')
+      }
+      const schemeRaw = index.has('mark_scheme') ? get(f, 'mark_scheme') : ''
+      const scheme = parseMarkScheme(schemeRaw)
+      if (!index.has('mark_scheme') || schemeRaw === '') {
+        err('mark_scheme', 'A written question needs a mark scheme.', 'Add a "mark_scheme" column listing each creditworthy point with its marks, for example: [2] Names the mitochondrion; [1] Mentions ATP.')
+      } else if (!scheme.ok) {
+        err('mark_scheme', scheme.error, 'Write each point as [marks] description, separated by semicolons: [2] First point; [1] Second point.')
+      } else if (marks !== null) {
+        const total = scheme.points.reduce((a, b) => a + b.marks, 0)
+        if (Math.abs(total - marks) > 1e-9) {
+          err('marks', `The marks (${marks}) do not match the mark scheme total (${total}).`, 'Make "marks" equal the sum of the points in "mark_scheme", or leave "marks" empty.')
+        }
+      }
+      if (rowOk && scheme.ok) {
+        questions.push({
+          row,
+          prompt,
+          type,
+          marks: marks ?? scheme.points.reduce((a, b) => a + b.marks, 0),
+          explanation,
+          topic,
+          modelAnswer,
+          markScheme: scheme.points,
+          options: []
+        })
+      }
+      return
+    }
+
+    // ----- Choice questions -----
     OPTION_COLUMNS.forEach((c, i) => {
       if (optionTexts[i] === '') {
         err(
           c,
           `Option ${OPTION_LABELS[i]} is empty.`,
-          'Every question needs exactly five non-empty options. Add a plausible distractor.'
+          'Every multiple-choice question needs exactly five non-empty options. Add a plausible distractor.'
         )
       }
     })
@@ -244,12 +308,6 @@ export function validateQuizCsv(text: string): QuizValidation {
         seen.set(key, i)
       }
     })
-
-    const typeRaw = get(f, 'type').toLowerCase()
-    let type: QuestionType | null = null
-    if (typeRaw === 'single' || typeRaw === 'multi') type = typeRaw
-    else if (typeRaw === '') err('type', 'The type is empty.', 'Write "single" for one correct answer or "multi" for several.')
-    else err('type', `"${get(f, 'type')}" is not a valid type.`, 'Use "single" or "multi".')
 
     const correctRaw = get(f, 'correct')
     const letters: OptionLabel[] = []
@@ -291,29 +349,14 @@ export function validateQuizCsv(text: string): QuizValidation {
       }
     }
 
-    let marks = 1
-    if (index.has('marks')) {
-      const m = get(f, 'marks')
-      if (m !== '') {
-        const v = Number(m)
-        if (!/^\d*\.?\d+$/.test(m) || !Number.isFinite(v) || v <= 0) {
-          err('marks', `"${m}" is not a positive number.`, 'Use a number greater than 0, such as 1 or 2.5, or leave it empty for 1 mark.')
-        } else if (v > 1000) {
-          err('marks', `${m} marks is more than the limit of 1000.`, 'Use a smaller number of marks.')
-        } else {
-          marks = v
-        }
-      }
-    }
-
     if (rowOk && type) {
       questions.push({
         row,
         prompt,
         type,
-        marks,
-        explanation: index.has('explanation') ? get(f, 'explanation') || null : null,
-        topic: index.has('topic') ? get(f, 'topic') || null : null,
+        marks: marks ?? 1,
+        explanation,
+        topic,
         options: OPTION_LABELS.map((label, i) => ({
           label,
           text: optionTexts[i],
@@ -333,6 +376,33 @@ export function validateQuizCsv(text: string): QuizValidation {
   }
 
   return { ok: errors.length === 0, errors, questions: errors.length === 0 ? questions : [] }
+}
+
+/**
+ * Parse a mark scheme written as "[2] First point; [1] Second point".
+ * Semicolons inside a point are allowed as long as the next point starts with [n].
+ */
+export function parseMarkScheme(raw: string): { ok: true; points: MarkPoint[] } | { ok: false; error: string } {
+  const text = raw.trim()
+  if (!text) return { ok: false, error: 'The mark scheme is empty.' }
+  if (!text.startsWith('[')) return { ok: false, error: 'The mark scheme must start with the marks for the first point, such as [1].' }
+  const points: MarkPoint[] = []
+  const re = /\[\s*(\d+(?:\.\d+)?)\s*(?:marks?)?\s*\]\s*([\s\S]*?)(?=\s*;?\s*\[\s*\d+(?:\.\d+)?\s*(?:marks?)?\s*\]|$)/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const marks = Number(m[1])
+    const desc = m[2].replace(/;\s*$/, '').trim()
+    if (!desc) return { ok: false, error: `Point ${points.length + 1} has marks but no description.` }
+    if (!(marks > 0)) return { ok: false, error: `Point ${points.length + 1} must be worth more than 0 marks.` }
+    points.push({ text: desc, marks })
+    if (points.length > 20) return { ok: false, error: 'The mark scheme has more than 20 points.' }
+  }
+  if (points.length === 0) return { ok: false, error: 'No marking points were found.' }
+  return { ok: true, points }
+}
+
+export function formatMarkScheme(points: MarkPoint[]): string {
+  return points.map((p) => `[${p.marks}] ${p.text.replace(/\s+/g, ' ').trim()}`).join('; ')
 }
 
 export function suggestTitle(filename: string): string {

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { isAllowedUpdateRequest } from './updates'
+import { isAllowedAiRequest } from './ai/openrouter'
 
 export const APP_SCHEME = 'app'
 export const APP_ORIGIN = `${APP_SCHEME}://tally`
@@ -57,7 +58,7 @@ export function hardenSession(): void {
       const origin = new URL(dev).host
       if (new URL(details.url).host === origin) return cb({})
     }
-    if (isAllowedUpdateRequest(details.url)) return cb({})
+    if (isAllowedUpdateRequest(details.url) || isAllowedAiRequest(details.url)) return cb({})
     blockedRequests.push(details.url)
     console.warn('[net] blocked', details.url)
     cb({ cancel: true })

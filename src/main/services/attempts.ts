@@ -1,6 +1,7 @@
 import type { DB } from '../db/connection'
 import { nowIso } from '../db/connection'
 import { markQuestion, percentage, shuffle } from '../marking'
+import { blankMarking, markingTotal } from '../ai/mark'
 import {
   OPTION_LABELS,
   type AnswerRequest,
@@ -13,6 +14,9 @@ import {
   type QuestionType,
   type ReviewQuestion,
   type AttemptTiming,
+  type MarkPoint,
+  type WrittenMarking,
+  type WrittenReview,
   type TopicTiming,
   type SessionQuestion,
   type StartAttemptRequest,
@@ -57,6 +61,11 @@ interface RawResponse {
   marks: number
   explanation: string | null
   topic: string | null
+  model_answer: string | null
+  mark_scheme_json: string | null
+  written_answer: string | null
+  marking_json: string | null
+  marked_by: string | null
 }
 
 interface RawOption {
@@ -132,9 +141,14 @@ export function startAttempt(db: DB, req: StartAttemptRequest, random: () => num
     if (!v) throw new UserError('This quiz has no questions.')
     versionId = v.id
     questionIds = db
-      .prepare('SELECT id FROM questions WHERE quiz_version_id = ? ORDER BY position')
+      .prepare(
+        `SELECT id FROM questions WHERE quiz_version_id = ?
+           AND (@types = 'all' OR (@types = 'written' AND type = 'written') OR (@types = 'choice' AND type <> 'written'))
+         ORDER BY position`
+      )
       .pluck()
-      .all(versionId) as number[]
+      .all(versionId, { types: req.settings.questionTypes ?? 'all' }) as number[]
+    if (questionIds.length === 0) throw new UserError('This quiz has no questions of that kind.')
   }
 
   const existing = db
@@ -147,7 +161,9 @@ export function startAttempt(db: DB, req: StartAttemptRequest, random: () => num
     shuffleOptions: req.settings.shuffleOptions,
     feedback: req.settings.feedback,
     timeLimitMinutes: req.settings.timeLimitMinutes,
-    marking: req.settings.marking
+    marking: req.settings.marking,
+    aiMarking: req.settings.aiMarking ?? false,
+    questionTypes: req.settings.questionTypes ?? 'all'
   }
 
   const tx = db.transaction((): number => {
@@ -188,7 +204,7 @@ export function startAttempt(db: DB, req: StartAttemptRequest, random: () => num
 function loadResponses(db: DB, attemptId: number): { responses: RawResponse[]; options: Map<number, RawOption[]> } {
   const responses = db
     .prepare(
-      `SELECT r.*, q.prompt, q.type, q.marks, q.explanation, q.topic
+      `SELECT r.*, q.prompt, q.type, q.marks, q.explanation, q.topic, q.model_answer, q.mark_scheme_json
        FROM responses r JOIN questions q ON q.id = r.question_id
        WHERE r.attempt_id = ? ORDER BY r.display_position`
     )
@@ -215,7 +231,34 @@ function orderedOptions(r: RawResponse, options: Map<number, RawOption[]>): RawO
   return list.length === 5 ? list : [...byId.values()].sort((a, b) => a.label.localeCompare(b.label))
 }
 
+function schemeOf(r: RawResponse): MarkPoint[] {
+  try {
+    const v = JSON.parse(r.mark_scheme_json ?? '[]') as MarkPoint[]
+    return Array.isArray(v) ? v : []
+  } catch {
+    return []
+  }
+}
+
+function markingOf(r: RawResponse): WrittenMarking | null {
+  if (!r.marking_json) return null
+  try {
+    return JSON.parse(r.marking_json) as WrittenMarking
+  } catch {
+    return null
+  }
+}
+
+function writtenReview(r: RawResponse): WrittenReview {
+  return { modelAnswer: r.model_answer ?? '', markScheme: schemeOf(r), marking: markingOf(r) }
+}
+
 function feedbackFor(r: RawResponse, opts: RawOption[], mode: 'strict' | 'partial'): QuestionFeedback {
+  if (r.type === 'written') {
+    const m = markingOf(r)
+    const total = m ? markingTotal(m) : 0
+    return { correctOptionIds: [], marksAwarded: total, isCorrect: total >= r.marks, explanation: r.explanation, written: writtenReview(r) }
+  }
   const correct = opts.filter((o) => o.is_correct === 1).map((o) => o.id)
   const outcome = markQuestion(correct, parseIds(r.selected_option_ids_json), r.marks, mode)
   return {
@@ -249,6 +292,7 @@ export function getSession(db: DB, id: number): AttemptSession {
       selected: parseIds(r.selected_option_ids_json),
       flagged: r.flagged === 1,
       timeSpent: Math.round(r.time_spent_seconds),
+      writtenAnswer: r.written_answer ?? '',
       feedback: r.revealed_at ? feedbackFor(r, opts, a.marking_mode) : null
     }
   })
@@ -273,7 +317,7 @@ export function getSession(db: DB, id: number): AttemptSession {
 function loadResponse(db: DB, attemptId: number, questionId: number): RawResponse {
   const r = db
     .prepare(
-      `SELECT r.*, q.prompt, q.type, q.marks, q.explanation, q.topic
+      `SELECT r.*, q.prompt, q.type, q.marks, q.explanation, q.topic, q.model_answer, q.mark_scheme_json
        FROM responses r JOIN questions q ON q.id = r.question_id
        WHERE r.attempt_id = ? AND r.question_id = ?`
     )
@@ -307,6 +351,13 @@ export function revealAnswer(db: DB, attemptId: number, questionId: number): Que
   requireInProgress(a)
   if (a.feedback_mode !== 'each') throw new UserError('Answers are shown at the end of this attempt.')
   const r = loadResponse(db, attemptId, questionId)
+  if (r.type === 'written') {
+    if (!r.revealed_at) {
+      db.prepare('UPDATE responses SET revealed_at = ? WHERE id = ?').run(nowIso(), r.id)
+      if (!(r.written_answer ?? '').trim()) applyMarking(db, attemptId, questionId, blankMarking(schemeOf(r)))
+    }
+    return feedbackFor(loadResponse(db, attemptId, questionId), [], a.marking_mode)
+  }
   const { options } = loadResponses(db, attemptId)
   const fb = feedbackFor(r, orderedOptions(r, options), a.marking_mode)
   if (!r.revealed_at) {
@@ -355,6 +406,17 @@ export function submitAttempt(db: DB, id: number, now: string = nowIso()): void 
     let awarded = 0
     const upd = db.prepare('UPDATE responses SET is_correct = ?, marks_awarded = ? WHERE id = ?')
     for (const r of responses) {
+      if (r.type === 'written') {
+        let m = markingOf(r)
+        if (!m && !(r.written_answer ?? '').trim()) {
+          m = blankMarking(schemeOf(r))
+          db.prepare(`UPDATE responses SET marking_json = ?, marked_by = 'auto' WHERE id = ?`).run(JSON.stringify(m), r.id)
+        }
+        const got = m ? markingTotal(m) : 0
+        awarded += got
+        upd.run(m && got >= r.marks ? 1 : 0, got, r.id)
+        continue
+      }
       const opts = options.get(r.question_id) ?? []
       const correct = opts.filter((o) => o.is_correct === 1).map((o) => o.id)
       const out = markQuestion(correct, parseIds(r.selected_option_ids_json), r.marks, a.marking_mode)
@@ -367,8 +429,121 @@ export function submitAttempt(db: DB, id: number, now: string = nowIso()): void 
       `UPDATE attempts SET status = 'submitted', submitted_at = ?, marks_awarded = ?, percentage = ?,
          attempt_number = ? WHERE id = ?`
     ).run(now, awarded, percentage(awarded, a.marks_available), number, id)
+    recomputeAttempt(db, id)
   })
   tx()
+}
+
+// ---------------------------------------------------------------------------
+// Written answers
+
+export function saveWritten(db: DB, attemptId: number, questionId: number, text: string): void {
+  const a = loadAttempt(db, attemptId)
+  requireInProgress(a)
+  const r = loadResponse(db, attemptId, questionId)
+  if (r.type !== 'written') throw new UserError('That question is not a written question.')
+  if (r.revealed_at) throw new UserError('You have already checked this answer.', 'LOCKED')
+  const previous = (r.written_answer ?? '').trim()
+  const next = text.slice(0, 8000)
+  const changed = previous !== '' && previous !== next.trim()
+  db.prepare(
+    `UPDATE responses SET written_answer = ?, answered_at = ?, answer_changes = answer_changes + ?,
+       selected_option_ids_json = '[]',
+       first_answer_seconds = COALESCE(first_answer_seconds, CASE WHEN ? > 0 THEN time_spent_seconds END)
+     WHERE id = ?`
+  ).run(next, next.trim() ? nowIso() : null, changed && !previous.startsWith(next.trim()) && !next.trim().startsWith(previous) ? 1 : 0, next.trim().length, r.id)
+}
+
+/** Written answers in a submitted attempt that still have no marking. */
+export function unmarkedWritten(db: DB, attemptId: number): {
+  questionId: number
+  prompt: string
+  marks: number
+  scheme: MarkPoint[]
+  modelAnswer: string
+  answer: string
+}[] {
+  return (
+    db
+      .prepare(
+        `SELECT r.*, q.prompt, q.type, q.marks, q.explanation, q.topic, q.model_answer, q.mark_scheme_json
+         FROM responses r JOIN questions q ON q.id = r.question_id
+         WHERE r.attempt_id = ? AND q.type = 'written' AND r.marking_json IS NULL
+           AND TRIM(COALESCE(r.written_answer, '')) <> ''
+         ORDER BY r.display_position`
+      )
+      .all(attemptId) as RawResponse[]
+  ).map((r) => ({
+    questionId: r.question_id,
+    prompt: r.prompt,
+    marks: r.marks,
+    scheme: schemeOf(r),
+    modelAnswer: r.model_answer ?? '',
+    answer: r.written_answer ?? ''
+  }))
+}
+
+/** Store a marking for one written answer and update the attempt's totals. */
+export function applyMarking(db: DB, attemptId: number, questionId: number, marking: WrittenMarking): void {
+  const r = loadResponse(db, attemptId, questionId)
+  if (r.type !== 'written') throw new UserError('That question is not a written question.')
+  const scheme = schemeOf(r)
+  if (marking.points.length !== scheme.length) throw new UserError('The marks do not match the mark scheme.')
+  const clean: WrittenMarking = {
+    ...marking,
+    points: marking.points.map((p, i) => ({ ...p, awarded: Math.min(scheme[i].marks, Math.max(0, Math.round(p.awarded * 2) / 2)) }))
+  }
+  const total = markingTotal(clean)
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE responses SET marking_json = ?, marked_by = ?, marks_awarded = ?, is_correct = ? WHERE id = ?').run(
+      JSON.stringify(clean),
+      clean.markedBy,
+      total,
+      total >= r.marks ? 1 : 0,
+      r.id
+    )
+    recomputeAttempt(db, attemptId)
+  })
+  tx()
+}
+
+/** Adjust the marks for a written answer by hand (self-marking or disagreeing with the AI). */
+export function adjustMarking(db: DB, attemptId: number, questionId: number, awarded: number[]): void {
+  const r = loadResponse(db, attemptId, questionId)
+  const scheme = schemeOf(r)
+  if (awarded.length !== scheme.length) throw new UserError('Give a mark for every point in the mark scheme.')
+  const prev = markingOf(r)
+  const marking: WrittenMarking = prev
+    ? { ...prev, points: prev.points.map((p, i) => ({ ...p, awarded: awarded[i] })), edited: true, markedAt: nowIso() }
+    : {
+        points: scheme.map((_, i) => ({ awarded: awarded[i], evidence: '', reason: '' })),
+        feedback: '',
+        markedBy: 'self',
+        model: null,
+        markedAt: nowIso(),
+        edited: false
+      }
+  applyMarking(db, attemptId, questionId, marking)
+}
+
+/** Re-total a submitted attempt after a written answer is (re)marked. */
+export function recomputeAttempt(db: DB, attemptId: number): void {
+  const a = loadAttempt(db, attemptId)
+  if (a.status !== 'submitted') return
+  const t = db
+    .prepare(
+      `SELECT COALESCE(SUM(r.marks_awarded), 0) AS awarded,
+              SUM(q.type = 'written' AND r.marking_json IS NULL) AS pending
+       FROM responses r JOIN questions q ON q.id = r.question_id WHERE r.attempt_id = ?`
+    )
+    .get(attemptId) as { awarded: number; pending: number | null }
+  const awarded = Math.round(t.awarded * 10000) / 10000
+  db.prepare('UPDATE attempts SET marks_awarded = ?, percentage = ?, needs_marking = ? WHERE id = ?').run(
+    awarded,
+    percentage(awarded, a.marks_available),
+    t.pending ?? 0,
+    attemptId
+  )
 }
 
 export function abandonAttempt(db: DB, id: number): void {
@@ -409,12 +584,14 @@ export function getResult(db: DB, id: number): AttemptResult {
       selected,
       marksAwarded: r.marks_awarded ?? 0,
       isCorrect: r.is_correct === 1,
-      answered: selected.length > 0,
+      answered: r.type === 'written' ? !!(r.written_answer ?? '').trim() : selected.length > 0,
       timeSpent: Math.round(r.time_spent_seconds),
       flagged: r.flagged === 1,
       visits: r.visit_count,
       answerChanges: r.answer_changes,
-      firstAnswerSeconds: r.first_answer_seconds === null ? null : Math.round(r.first_answer_seconds)
+      firstAnswerSeconds: r.first_answer_seconds === null ? null : Math.round(r.first_answer_seconds),
+      writtenAnswer: r.type === 'written' ? (r.written_answer ?? '') : null,
+      written: r.type === 'written' ? writtenReview(r) : null
     }
   })
 
@@ -462,7 +639,8 @@ export function getResult(db: DB, id: number): AttemptResult {
     topics,
     questions,
     wrongCount: questions.filter((q) => !q.isCorrect).length,
-    timing: timingFor(questions)
+    timing: timingFor(questions),
+    needsMarking: questions.filter((q) => q.written && !q.written.marking).length
   }
 }
 

@@ -127,6 +127,33 @@ export const MIGRATIONS: ((db: Database.Database) => void)[] = [
         WHEN 'graphite' THEN 'violet'
         ELSE colour END;
     `)
+  },
+  // 3: written-answer questions with a points-based mark scheme, and how each answer was marked.
+  (db) => {
+    db.exec(`
+      CREATE TABLE questions_v3 (
+        id INTEGER PRIMARY KEY,
+        quiz_version_id INTEGER NOT NULL REFERENCES quiz_versions(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        prompt TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('single', 'multi', 'written')),
+        marks REAL NOT NULL CHECK (marks > 0),
+        explanation TEXT,
+        topic TEXT,
+        model_answer TEXT,
+        mark_scheme_json TEXT,
+        UNIQUE (quiz_version_id, position)
+      );
+      INSERT INTO questions_v3 (id, quiz_version_id, position, prompt, type, marks, explanation, topic)
+        SELECT id, quiz_version_id, position, prompt, type, marks, explanation, topic FROM questions;
+      DROP TABLE questions;
+      ALTER TABLE questions_v3 RENAME TO questions;
+
+      ALTER TABLE responses ADD COLUMN written_answer TEXT;
+      ALTER TABLE responses ADD COLUMN marking_json TEXT;
+      ALTER TABLE responses ADD COLUMN marked_by TEXT;
+      ALTER TABLE attempts ADD COLUMN needs_marking INTEGER NOT NULL DEFAULT 0;
+    `)
   }
 ]
 

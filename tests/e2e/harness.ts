@@ -86,6 +86,8 @@ export async function blockedRequests(app: ElectronApplication): Promise<string[
 /** Finish first-run setup with the suggested folder. */
 export async function setupDefault(page: Page): Promise<void> {
   await page.getByRole('button', { name: /Create my data folder/ }).click()
+  await page.getByTestId('onboarding').waitFor()
+  await page.getByTestId('skip-onboarding').click()
   await page.getByRole('navigation', { name: 'Main' }).waitFor()
 }
 

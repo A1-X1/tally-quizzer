@@ -1,7 +1,7 @@
 // Types shared by the main process, the preload bridge and the renderer.
 // Nothing in here may import Node or Electron modules.
 
-export type QuestionType = 'single' | 'multi'
+export type QuestionType = 'single' | 'multi' | 'written'
 export type MarkingMode = 'strict' | 'partial'
 export type FeedbackMode = 'end' | 'each'
 export type ThemePreference = 'system' | 'light' | 'dark'
@@ -100,6 +100,7 @@ export interface QuizVersionInfo {
   importedAt: string
   singleCount: number
   multiCount: number
+  writtenCount: number
   topics: string[]
 }
 
@@ -146,10 +147,19 @@ export interface ParsedOption {
   isCorrect: boolean
 }
 
+/** One creditworthy point in a written question's mark scheme. */
+export interface MarkPoint {
+  text: string
+  marks: number
+}
+
 export interface ParsedQuestion {
   row: number
   prompt: string
   type: QuestionType
+  /** Written questions only. */
+  modelAnswer?: string | null
+  markScheme?: MarkPoint[]
   marks: number
   explanation: string | null
   topic: string | null
@@ -166,6 +176,7 @@ export interface ImportPreview {
   totalMarks: number
   singleCount: number
   multiCount: number
+  writtenCount: number
   topics: string[]
   sample: ParsedQuestion[]
   /** A quiz in the chosen module already has this exact content. */
@@ -198,6 +209,10 @@ export interface AttemptSettings {
   feedback: FeedbackMode
   timeLimitMinutes: number | null
   marking: MarkingMode
+  /** Mark written answers with the AI when submitted (needs a key). Otherwise you mark them yourself. */
+  aiMarking?: boolean
+  /** Which questions to include when a quiz mixes formats. */
+  questionTypes?: 'all' | 'choice' | 'written'
 }
 
 export interface StartAttemptRequest {
@@ -226,6 +241,8 @@ export interface SessionQuestion {
   selected: number[]
   flagged: boolean
   timeSpent: number
+  /** Written questions: the answer typed so far. */
+  writtenAnswer: string
   /** Present once feedback has been revealed for this question. */
   feedback: QuestionFeedback | null
 }
@@ -235,6 +252,14 @@ export interface QuestionFeedback {
   marksAwarded: number
   isCorrect: boolean
   explanation: string | null
+  written?: WrittenReview
+}
+
+export interface WrittenReview {
+  modelAnswer: string
+  markScheme: MarkPoint[]
+  /** Null until the answer has been marked. */
+  marking: WrittenMarking | null
 }
 
 export interface AttemptSession {
@@ -307,6 +332,8 @@ export interface ReviewQuestion {
   flagged: boolean
   visits: number
   answerChanges: number
+  writtenAnswer: string | null
+  written: WrittenReview | null
   /** Active seconds on the question before the first option was chosen. */
   firstAnswerSeconds: number | null
 }
@@ -339,6 +366,8 @@ export interface AttemptResult {
   questions: ReviewQuestion[]
   wrongCount: number
   timing: AttemptTiming
+  /** Written answers still waiting to be marked. */
+  needsMarking: number
 }
 
 // ---------------------------------------------------------------------------
@@ -462,4 +491,70 @@ export interface RestoreCheck {
   filename: string
   summary: DataSummary
   schemaVersion: number
+}
+
+// ---------------------------------------------------------------------------
+// AI quiz generation and written-answer marking
+
+export type GenerateFormat = 'choice' | 'mixed' | 'written'
+export type Difficulty = 'easy' | 'medium' | 'hard' | 'mixed'
+
+export interface AiStatus {
+  configured: boolean
+  keyHint: string | null
+  model: string | null
+  aiMarking: boolean
+  /** Linux only: which secret store protects the key ("basic_text" means weak protection). */
+  backend: string
+}
+
+export interface AiModel {
+  id: string
+  name: string
+  free: boolean
+  contextLength: number
+}
+
+export interface SourceFile {
+  token: string
+  name: string
+  kind: string
+  chars: number
+}
+
+export interface GenerateRequest {
+  moduleId: number
+  topic: string
+  count: number
+  difficulty: Difficulty
+  format: GenerateFormat
+  instructions: string | null
+  sourceTokens: string[]
+}
+
+export interface GenerateResult {
+  preview: ImportPreview
+  csv: string
+  filename: string
+  model: string
+  /** Questions removed because they still broke the rules after a repair attempt. */
+  dropped: number
+  /** The material was longer than the limit and was shortened. */
+  truncated: boolean
+}
+
+export interface PointMark {
+  awarded: number
+  evidence: string
+  reason: string
+}
+
+export interface WrittenMarking {
+  points: PointMark[]
+  feedback: string
+  markedBy: 'ai' | 'self' | 'auto'
+  model: string | null
+  markedAt: string
+  /** The student changed a mark after it was given. */
+  edited: boolean
 }

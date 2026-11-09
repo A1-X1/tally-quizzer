@@ -3,6 +3,7 @@ import type { AttemptSession, QuestionFeedback, SessionQuestion } from '../../..
 import { api, errorCode, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { TypeBadge } from '../components/QuestionView'
+import { MarkingTable } from '../components/Marking'
 import { RichText } from '../components/RichText'
 import { Dialog, ErrorNote, Loading, useToast } from '../components/ui'
 import { fmtClock, fmtMarks } from '../lib/format'
@@ -18,6 +19,7 @@ export function TakeQuiz({ id }: { id: number }) {
   const [exitOpen, setExitOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
+  const [checking, setChecking] = useState(false)
   const toast = useToast()
 
   const pending = useRef(0)
@@ -136,11 +138,17 @@ export function TakeQuiz({ id }: { id: number }) {
     async (q: SessionQuestion): Promise<void> => {
       const s = sessionRef.current
       if (!s || q.feedback) return
+      setChecking(true)
       try {
         const fb: QuestionFeedback = await api('attempts:reveal', { attemptId: s.id, questionId: q.id })
         updateQuestion(q.id, { feedback: fb })
       } catch (e) {
         toast(errorMessage(e), 'bad')
+        // The answer is locked even if AI marking failed; show the model answer.
+        const fb = await api('attempts:session', { id: s.id }).then((x) => x.questions.find((y) => y.id === q.id)?.feedback ?? null).catch(() => null)
+        if (fb) updateQuestion(q.id, { feedback: fb })
+      } finally {
+        setChecking(false)
       }
     },
     [toast]
@@ -190,6 +198,10 @@ export function TakeQuiz({ id }: { id: number }) {
       if (!s || exitOpen || submitting) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const target = e.target as HTMLElement | null
+      if (target && target.tagName === 'TEXTAREA' && e.key === 'Escape') {
+        target.blur()
+        return
+      }
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) return
       if (document.querySelector('dialog[open]')) return
       const i = indexRef.current
@@ -212,7 +224,7 @@ export function TakeQuiz({ id }: { id: number }) {
         if (key === 'enter') {
           if (target && target.tagName === 'BUTTON' && !target.classList.contains('opt')) return
           e.preventDefault()
-          if (s.settings.feedback === 'each' && !q.feedback && q.selected.length > 0) void reveal(q)
+          if (s.settings.feedback === 'each' && !q.feedback && (q.selected.length > 0 || q.writtenAnswer.trim())) void reveal(q)
           else goTo(i + 1)
           return
         }
@@ -241,8 +253,10 @@ export function TakeQuiz({ id }: { id: number }) {
   const total = session.questions.length
   const onReview = index >= total
   const q = onReview ? null : session.questions[index]
-  const answered = session.questions.filter((x) => x.selected.length > 0).length
-  const unanswered = session.questions.filter((x) => x.selected.length === 0)
+  const isAnswered = (x: SessionQuestion): boolean => (x.type === 'written' ? x.writtenAnswer.trim().length > 0 : x.selected.length > 0)
+  const answered = session.questions.filter(isAnswered).length
+  const unanswered = session.questions.filter((x) => !isAnswered(x))
+  const writtenToMark = session.settings.aiMarking ? session.questions.filter((x) => x.type === 'written' && x.writtenAnswer.trim() && !x.feedback?.written?.marking).length : 0
   const flagged = session.questions.filter((x) => x.flagged)
   const remaining = limit !== null ? Math.max(0, limit - elapsed) : null
 
@@ -292,7 +306,7 @@ export function TakeQuiz({ id }: { id: number }) {
               const cls = [
                 'nav-q',
                 i === index ? 'is-current' : '',
-                x.selected.length ? 'is-answered' : '',
+                isAnswered(x) ? 'is-answered' : '',
                 x.flagged ? 'is-flagged' : '',
                 x.feedback ? (x.feedback.isCorrect ? 'is-right' : 'is-wrong') : ''
               ]
@@ -305,7 +319,7 @@ export function TakeQuiz({ id }: { id: number }) {
                     className={cls}
                     onClick={() => goTo(i)}
                     aria-current={i === index ? 'step' : undefined}
-                    aria-label={`Question ${i + 1}${x.selected.length ? ', answered' : ', not answered'}${x.flagged ? ', flagged' : ''}`}
+                    aria-label={`Question ${i + 1}${isAnswered(x) ? ', answered' : ', not answered'}${x.flagged ? ', flagged' : ''}`}
                   >
                     <span className="num">{i + 1}</span>
                   </button>
@@ -348,6 +362,16 @@ export function TakeQuiz({ id }: { id: number }) {
             <h1 id="q-prompt" className="question-prompt">
               <RichText text={q.prompt} />
             </h1>
+            {q.type === 'written' ? (
+              <WrittenAnswer
+                key={q.id}
+                q={q}
+                attemptId={session.id}
+                onChange={(text) => updateQuestion(q.id, { writtenAnswer: text })}
+                onSaveState={setSaveState}
+              />
+            ) : null}
+            {q.type === 'written' ? null : (
             <div
               className={`options options-${q.type}`}
               role={q.type === 'single' ? 'radiogroup' : 'group'}
@@ -384,8 +408,11 @@ export function TakeQuiz({ id }: { id: number }) {
                 )
               })}
             </div>
+            )}
 
-            {q.feedback ? (
+            {q.feedback?.written ? <WrittenFeedback q={q} aiMarking={!!session.settings.aiMarking} /> : null}
+
+            {q.feedback && !q.feedback.written ? (
               <div className={q.feedback.isCorrect ? 'feedback is-right' : 'feedback is-wrong'} role="status">
                 <p className="feedback-verdict">
                   <Icon name={q.feedback.isCorrect ? 'check' : 'cross'} size={18} weight={2.4} />
@@ -414,10 +441,10 @@ export function TakeQuiz({ id }: { id: number }) {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={q.selected.length === 0}
+                  disabled={!isAnswered(q) || checking}
                   onClick={() => void reveal(q)}
                 >
-                  Check answer <kbd className="kbd-on">Enter</kbd>
+                  {checking ? 'Marking…' : 'Check answer'} <kbd className="kbd-on">Enter</kbd>
                 </button>
               ) : (
                 <button type="button" className="btn btn-primary" onClick={() => goTo(index + 1)} data-testid="next">
@@ -450,6 +477,13 @@ export function TakeQuiz({ id }: { id: number }) {
                 <p className="muted small">Unanswered questions score zero.</p>
               </div>
             ) : null}
+            {session.questions.some((x) => x.type === 'written') ? (
+              <p className="muted small submit-note">
+                {session.settings.aiMarking
+                  ? `Written answers are marked by the AI against each mark scheme when you submit${writtenToMark > 2 ? '; this can take a minute' : ''}. You can change any mark afterwards.`
+                  : 'You will mark your written answers yourself against the mark scheme on the next page.'}
+              </p>
+            ) : null}
             {flagged.length ? (
               <div className="submit-list">
                 <h2 className="mini-h">Flagged</h2>
@@ -469,7 +503,7 @@ export function TakeQuiz({ id }: { id: number }) {
                 <Icon name="arrowLeft" size={16} /> Back to questions
               </button>
               <button type="button" className="btn btn-primary btn-xl" onClick={() => void submit()} disabled={submitting} data-testid="submit">
-                Submit attempt
+                {submitting ? (writtenToMark ? 'Marking written answers…' : 'Submitting…') : 'Submit attempt'}
               </button>
             </div>
           </section>
@@ -516,6 +550,107 @@ export function TakeQuiz({ id }: { id: number }) {
           so it is not counted.
         </p>
       </Dialog>
+    </div>
+  )
+}
+
+function WrittenAnswer({
+  q,
+  attemptId,
+  onChange,
+  onSaveState
+}: {
+  q: SessionQuestion
+  attemptId: number
+  onChange: (text: string) => void
+  onSaveState: (s: 'saved' | 'saving' | 'error') => void
+}) {
+  const [text, setText] = useState(q.writtenAnswer)
+  const locked = !!q.feedback
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latest = useRef(text)
+  const save = useCallback(
+    (value: string) => {
+      onSaveState('saving')
+      api('attempts:answerWritten', { attemptId, questionId: q.id, text: value })
+        .then(() => onSaveState('saved'))
+        .catch(() => onSaveState('error'))
+    },
+    [attemptId, q.id, onSaveState]
+  )
+  useEffect(
+    () => () => {
+      // Save immediately when leaving the question.
+      if (timer.current) {
+        clearTimeout(timer.current)
+        save(latest.current)
+      }
+    },
+    [save]
+  )
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0
+  return (
+    <div className="written-answer">
+      <label className="sr-only" htmlFor={`wa-${q.id}`}>
+        Your answer
+      </label>
+      <textarea
+        id={`wa-${q.id}`}
+        className="input textarea written-input"
+        rows={8}
+        maxLength={8000}
+        value={text}
+        readOnly={locked}
+        placeholder="Type your answer. Aim for the points a marker would look for."
+        onChange={(e) => {
+          const v = e.target.value
+          setText(v)
+          latest.current = v
+          onChange(v)
+          onSaveState('saving')
+          if (timer.current) clearTimeout(timer.current)
+          timer.current = setTimeout(() => {
+            timer.current = null
+            save(v)
+          }, 600)
+        }}
+        data-testid="written-input"
+      />
+      <div className="written-meta faint small">
+        <span className="num">{words} {words === 1 ? 'word' : 'words'}</span>
+        <span>
+          Worth {fmtMarks(q.marks)} {q.marks === 1 ? 'mark' : 'marks'}. Keyboard shortcuts pause while you type; press <kbd>Esc</kbd> to leave the box.
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function WrittenFeedback({ q, aiMarking }: { q: SessionQuestion; aiMarking: boolean }) {
+  const w = q.feedback?.written
+  if (!w) return null
+  const m = w.marking
+  const total = m ? m.points.reduce((s, p) => s + p.awarded, 0) : null
+  return (
+    <div className={`feedback feedback-written ${m ? (total !== null && total >= q.marks ? 'is-right' : 'is-wrong') : ''}`} role="status">
+      {m ? (
+        <p className="feedback-verdict">
+          {fmtMarks(total ?? 0)} of {fmtMarks(q.marks)} marks
+          <span className="faint small"> · {m.markedBy === 'ai' ? 'marked by AI' : m.markedBy === 'auto' ? 'no answer' : 'marked by you'}</span>
+        </p>
+      ) : (
+        <p className="feedback-verdict">
+          {aiMarking ? 'The AI could not mark this answer. ' : ''}Mark it yourself on the results page.
+        </p>
+      )}
+      <MarkingTable scheme={w.markScheme} marking={m} />
+      {m?.feedback ? <p className="feedback-expl">{m.feedback}</p> : null}
+      <div className="model-answer">
+        <span className="mini-h">Model answer</span>
+        <p>
+          <RichText text={w.modelAnswer} />
+        </p>
+      </div>
     </div>
   )
 }

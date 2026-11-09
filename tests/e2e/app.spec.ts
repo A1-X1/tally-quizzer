@@ -35,8 +35,9 @@ async function createModule(page: Page, name: string): Promise<void> {
 
 async function importCsv(r: Running, file: string): Promise<void> {
   const { app, page } = r
-  await page.getByRole('link', { name: 'Upload quiz' }).first().click()
-  await expect(page.getByRole('heading', { level: 1, name: 'Upload a quiz' })).toBeVisible()
+  await page.getByRole('link', { name: 'New quiz' }).first().click()
+  await expect(page.getByRole('heading', { level: 1, name: 'New quiz' })).toBeVisible()
+  await page.getByTestId('method-file').click()
   await stubOpenDialog(app, file)
   await page.getByTestId('choose-csv').click()
 }
@@ -403,11 +404,158 @@ test.describe('packaged app', () => {
 
     const r = await launch(env)
     await expect(r.page.getByText(/Updated to Tally .*Your data was backed up first\./)).toBeVisible()
+    await r.page.getByTestId('skip-onboarding').click()
     const backups = fs.readdirSync(path.join(dir, 'backups')).filter((f) => f.endsWith('-pre-upgrade.sqlite'))
     expect(backups).toHaveLength(1)
     expect(fs.readFileSync(path.join(dir, 'backups', backups[0])).equals(original)).toBe(true)
     await nav(r.page, 'Modules').click()
     await expect(r.page.getByRole('link', { name: 'From v1' })).toBeVisible()
+    expect(r.consoleErrors).toEqual([])
+    await close(r)
+  })
+
+  test('written questions: typed answers are saved, then marked against the scheme by hand', async () => {
+    const env = newEnv()
+    const r = await launch(env)
+    await setupDefault(r.page)
+    await createModule(r.page, 'Biology')
+    const file = path.join(env.root, 'written.csv')
+    fs.writeFileSync(
+      file,
+      [
+        'question,option_a,option_b,option_c,option_d,option_e,type,correct,marks,explanation,topic,model_answer,mark_scheme',
+        '"Which organelle makes most ATP?",Nucleus,Mitochondrion,Ribosome,Golgi body,Lysosome,single,B,1,,Cells,,',
+        '"Explain why enzymes stop working at high temperatures.",,,,,,written,,3,,Enzymes,"Bonds holding the tertiary structure break, so the enzyme denatures; the active site changes shape and the substrate no longer fits.","[1] The enzyme is denatured / loses its shape; [1] The active site changes shape; [1] The substrate no longer fits the active site"'
+      ].join('\n')
+    )
+    await importCsv(r, file)
+    await expect(r.page.getByText('Model answer').first()).toBeVisible()
+    await r.page.getByTestId('save-import').click()
+    await r.page.getByTestId('start-quiz').click()
+    await onQuestion(r.page, 1)
+    await r.page.keyboard.press('b')
+    await r.page.keyboard.press('Enter')
+    await onQuestion(r.page, 2)
+    await expect(r.page.getByText('Written answer')).toBeVisible()
+    const box = r.page.getByTestId('written-input')
+    await box.click()
+    // Letters typed in the box must not trigger shortcuts.
+    await box.fill('')
+    await r.page.keyboard.type('The heat denatures the enzyme. Flag: f')
+    await expect(box).toHaveValue('The heat denatures the enzyme. Flag: f')
+    await expect(r.page.locator('.nav-q.is-flagged')).toHaveCount(0)
+    await expect(r.page.locator('.take-save')).toHaveText('Saved')
+    await r.page.keyboard.press('Escape')
+    await r.page.keyboard.press('Enter')
+    await expect(r.page.getByRole('heading', { name: 'Ready to submit?' })).toBeVisible()
+    await r.page.getByTestId('submit').click()
+
+    await expect(r.page.getByTestId('needs-marking')).toBeVisible()
+    await expect(r.page.getByTestId('result-mark')).toHaveText(/^1\s*\/\s*4$/)
+    const editor = r.page.getByTestId('mark-editor')
+    await expect(editor).toBeVisible()
+    await editor.getByRole('radiogroup', { name: 'Marks for point 1' }).getByRole('radio', { name: '1' }).click()
+    await editor.getByTestId('save-marks').click()
+    await expect(r.page.getByTestId('needs-marking')).toHaveCount(0)
+    await expect(r.page.getByTestId('result-mark')).toHaveText(/^2\s*\/\s*4$/)
+    await expect(r.page.getByTestId('result-pct')).toHaveText('50%')
+    await expect(r.page.getByText('Marked by you.')).toBeVisible()
+    expect(r.consoleErrors).toEqual([])
+    await close(r)
+  })
+
+  test('onboarding offers AI setup and chat guides without a key', async () => {
+    const env = newEnv()
+    const r = await launch(env)
+    await r.page.getByRole('button', { name: /Create my data folder/ }).click()
+    await expect(r.page.getByTestId('onboarding')).toBeVisible()
+    await r.page.getByTestId('path-chat').click()
+    for (const name of ['Claude', 'ChatGPT', 'Gemini']) {
+      await r.page.getByRole('radio', { name, exact: true }).click()
+      await expect(r.page.getByText(`For one quiz in ${name}`)).toBeVisible()
+    }
+    await r.page.getByRole('radio', { name: 'With written answers' }).click()
+    await expect(r.page.locator('.prompt')).toContainText('mark_scheme')
+    await r.page.getByTestId('path-ai').click()
+    await r.page.getByTestId('ai-key').fill('not-a-key-at-all')
+    await r.page.getByTestId('save-key').click()
+    await expect(r.page.getByText(/does not look like an OpenRouter key/)).toBeVisible()
+    await r.page.getByTestId('finish-onboarding').click()
+    await expect(r.page.getByRole('navigation', { name: 'Main' })).toBeVisible()
+    expect(await blockedRequests(r.app)).toEqual([])
+    await close(r)
+
+    // Not shown again.
+    const again = await launch(env)
+    await expect(again.page.getByRole('navigation', { name: 'Main' })).toBeVisible()
+    await close(again)
+  })
+
+  // Live test against OpenRouter. Runs only when a key is provided in the environment;
+  // the key is typed into the app like a user would and is never written to the repository.
+  test('AI: connect a key, generate a mixed quiz from a PDF, and have written answers marked', async () => {
+    const key = process.env.TALLY_E2E_OPENROUTER_KEY
+    test.skip(!key, 'Set TALLY_E2E_OPENROUTER_KEY to run the live AI test')
+    test.setTimeout(12 * 60_000)
+    const env = newEnv()
+    const r = await launch(env)
+    await r.page.getByRole('button', { name: /Create my data folder/ }).click()
+    await r.page.getByTestId('path-ai').click()
+    await r.page.getByTestId('ai-key').fill(key!)
+    await r.page.getByTestId('save-key').click()
+    await expect(r.page.getByTestId('ai-connected')).toBeVisible({ timeout: 30_000 })
+    if (process.env.TALLY_E2E_MODEL) {
+      await r.app.evaluate(() => undefined)
+      await r.page.getByTestId('model-select').selectOption(process.env.TALLY_E2E_MODEL)
+    }
+    await r.page.getByTestId('finish-onboarding').click()
+    await createModule(r.page, 'Plant biology')
+
+    await r.page.getByRole('link', { name: 'New quiz' }).first().click()
+    await r.page.getByTestId('method-ai').click()
+    await r.page.getByTestId('gen-topic').fill('Photosynthesis: what it does and where it happens.')
+    await stubOpenDialog(r.app, path.resolve(__dirname, '../fixtures/sample.pdf'))
+    await r.page.getByRole('button', { name: /Add files/ }).click()
+    await expect(r.page.getByText('sample.pdf')).toBeVisible()
+    await r.page.getByRole('radiogroup', { name: 'Question format' }).getByRole('radio', { name: 'Mixed' }).click()
+    await r.page.locator('input[type=range]').fill('4')
+    await r.page.getByTestId('generate').click()
+    await expect(r.page.getByTestId('ai-generated')).toBeVisible({ timeout: 5 * 60_000 })
+    await expect(r.page.getByTestId('import-errors')).toHaveCount(0)
+    if (process.env.TALLY_SCREENSHOTS) await r.page.screenshot({ path: path.resolve(__dirname, '../../screenshots/ai-preview.png'), fullPage: true })
+    await r.page.getByTestId('save-import').click()
+
+    await r.page.getByTestId('start-quiz').click()
+    const total = await r.page.locator('.nav-q:not(.nav-q-submit)').count()
+    for (let i = 1; i <= total; i++) {
+      await onQuestion(r.page, i)
+      if (await r.page.getByTestId('written-input').count()) {
+        await r.page.getByTestId('written-input').fill(
+          'Photosynthesis converts light energy into chemical energy stored in glucose, and it takes place in the chloroplasts.'
+        )
+        await expect(r.page.locator('.take-save')).toHaveText('Saved')
+        await r.page.keyboard.press('Escape')
+      } else {
+        await r.page.keyboard.press('a')
+      }
+      await r.page.keyboard.press('Enter')
+    }
+    await r.page.getByTestId('submit').click()
+    await expect(r.page.getByTestId('result-pct')).toBeVisible({ timeout: 5 * 60_000 })
+    if (process.env.TALLY_E2E_VERBOSE) {
+      const mirror = path.join(dataDirOf(env), 'quizzes', 'Plant biology')
+      for (const f of fs.readdirSync(mirror)) console.log(fs.readFileSync(path.join(mirror, f), 'utf8'))
+      console.log(await r.page.locator('.written-review').allInnerTexts())
+    }
+    if (process.env.TALLY_SCREENSHOTS) {
+      await r.page.locator('#review-h').scrollIntoViewIfNeeded()
+      await r.page.screenshot({ path: path.resolve(__dirname, '../../screenshots/ai-results.png') })
+    }
+    const written = await r.page.locator('.written-review').count()
+    if (written > 0) {
+      await expect(r.page.getByText(/Marked by .* against the mark scheme/).first()).toBeVisible()
+    }
+    expect(await blockedRequests(r.app)).toEqual([])
     expect(r.consoleErrors).toEqual([])
     await close(r)
   })

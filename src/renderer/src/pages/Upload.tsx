@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAX_CSV_BYTES } from '../../../shared/api'
-import type { ImportPreview, ModuleRow } from '../../../shared/types'
+import type { GenerateResult, ImportPreview, ModuleRow } from '../../../shared/types'
+import { GenerateForm } from '../components/GenerateForm'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { ModuleDialog, nextColour } from '../components/ModuleForm'
@@ -22,6 +23,8 @@ export function UploadPage({ initialModule }: { initialModule: number | null }) 
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [method, setMethod] = useState<'ai' | 'file' | null>(null)
+  const [aiInfo, setAiInfo] = useState<GenerateResult | null>(null)
   const toast = useToast()
   const dropRef = useRef<HTMLDivElement>(null)
 
@@ -114,10 +117,9 @@ export function UploadPage({ initialModule }: { initialModule: number | null }) 
     <div className="page upload">
       <header className="page-head">
         <div>
-          <h1 className="page-title">Upload a quiz</h1>
+          <h1 className="page-title">New quiz</h1>
           <p className="lede">
-            Tally checks the whole file before saving anything. <a href={href({ name: 'help', section: 'csv' })}>CSV format</a> ·{' '}
-            <a href={href({ name: 'help', section: 'ai' })}>Write one with AI</a>
+            Generate one from a topic and your notes, or import a CSV file. Nothing is saved until you have checked it.
           </p>
         </div>
       </header>
@@ -159,7 +161,43 @@ export function UploadPage({ initialModule }: { initialModule: number | null }) 
         <li className={moduleId ? 'upload-step' : 'upload-step is-disabled'}>
           <div className="upload-step-n num">2</div>
           <div className="upload-step-body">
-            <h2 className="h-step">CSV file</h2>
+            <h2 className="h-step">How</h2>
+            <div className="method-cards" role="radiogroup" aria-label="How to create the quiz">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={method === 'ai'}
+                className={method === 'ai' ? 'method-card is-on' : 'method-card'}
+                onClick={() => setMethod('ai')}
+                data-testid="method-ai"
+              >
+                <span className="method-title">Generate with AI</span>
+                <span className="method-body">Describe the topic, add notes or slides, choose multiple choice, written or mixed.</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={method === 'file'}
+                className={method === 'file' ? 'method-card is-on' : 'method-card'}
+                onClick={() => setMethod('file')}
+                data-testid="method-file"
+              >
+                <span className="method-title">Import a file</span>
+                <span className="method-body">
+                  A CSV in Tally’s format, from a spreadsheet or an AI chat. <a href={href({ name: 'help', section: 'csv' })} onClick={(e) => e.stopPropagation()}>Format</a>
+                </span>
+              </button>
+            </div>
+            {method === 'ai' && moduleId ? (
+              <GenerateForm
+                moduleId={moduleId}
+                onGenerated={(r) => {
+                  setAiInfo(r)
+                  setFile({ filename: r.filename, text: r.csv })
+                }}
+              />
+            ) : null}
+            {method === 'file' ? (
             <div
               ref={dropRef}
               className={dragging ? 'dropzone is-over' : 'dropzone'}
@@ -190,6 +228,7 @@ export function UploadPage({ initialModule }: { initialModule: number | null }) 
                 {file ? 'Choose a different file…' : 'Choose a file…'}
               </button>
             </div>
+            ) : null}
           </div>
         </li>
 
@@ -198,6 +237,17 @@ export function UploadPage({ initialModule }: { initialModule: number | null }) 
           <div className="upload-step-body">
             <h2 className="h-step">Check and save</h2>
             {error ? <ErrorNote>{error}</ErrorNote> : null}
+            {aiInfo && file && file.filename === aiInfo.filename ? (
+              <div className="notice" role="status" data-testid="ai-generated">
+                <Icon name="info" size={18} />
+                <p>
+                  Written by <span className="mono">{aiInfo.model}</span> and checked against Tally’s rules.
+                  {aiInfo.dropped ? ` ${aiInfo.dropped} ${aiInfo.dropped === 1 ? 'question that broke the rules was' : 'questions that broke the rules were'} left out.` : ''}
+                  {aiInfo.truncated ? ' Your files were longer than the limit, so only the first part of each was used.' : ''} Read
+                  the sample below before saving.
+                </p>
+              </div>
+            ) : null}
             {busy && !preview ? <Loading label="Checking the file" /> : null}
             {preview && !preview.ok ? <ImportErrors preview={preview} /> : null}
             {preview && preview.ok ? (
@@ -219,6 +269,12 @@ export function UploadPage({ initialModule }: { initialModule: number | null }) 
                     <dt>Select all that apply</dt>
                     <dd className="num">{preview.multiCount}</dd>
                   </div>
+                  {preview.writtenCount ? (
+                    <div>
+                      <dt>Written</dt>
+                      <dd className="num">{preview.writtenCount}</dd>
+                    </div>
+                  ) : null}
                   <div>
                     <dt>Topics</dt>
                     <dd className="num">{preview.topics.length || '—'}</dd>

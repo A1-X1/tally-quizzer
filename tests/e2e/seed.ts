@@ -74,6 +74,7 @@ export function seedRealistic(userData: string, documents: string, theme: 'light
   const dataDir = path.join(documents, 'Tally Data')
   const db = createDataFolder(dataDir, JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8')).version)
   db.prepare(`INSERT INTO settings (key, value) VALUES ('theme', ?)`).run(theme)
+  db.prepare(`INSERT INTO settings (key, value) VALUES ('onboarding_done', '1')`).run()
   const mods: { name: string; code: string; colour: ModuleColour; desc: string; quizzes: [string, Q[]][]; skill: number }[] = [
     { name: 'Linear Algebra', code: 'MATH2010', colour: 'cobalt', desc: 'Vector spaces, linear maps, eigenvalues.', quizzes: [['Determinants and inverses', LINEAR.slice(0, 5)], ['Eigenvalues and rank', LINEAR.slice(2)]], skill: 0.55 },
     { name: 'Cell Biology', code: 'BIOL1120', colour: 'teal', desc: 'Structure and function of the cell.', quizzes: [['Organelles and membranes', CELL]], skill: 0.75 },
@@ -101,6 +102,42 @@ export function seedRealistic(userData: string, documents: string, theme: 'light
     const when = new Date(now - daysAgo * 86_400_000 + Math.floor(rand() * 8) * 3_600_000)
     takeAt(db, q.id, when, Math.min(0.97, q.skill + i * 0.012), rand, 4 + Math.floor(rand() * 9))
   }
+  // A quiz with written answers: one marked by the AI, one still to mark.
+  const writtenCsv = [
+    'question,option_a,option_b,option_c,option_d,option_e,type,correct,marks,explanation,topic,model_answer,mark_scheme',
+    '"Explain why enzymes stop working at very high temperatures.",,,,,,written,,3,,Enzymes,"High temperatures break the bonds holding the tertiary structure, so the enzyme denatures. The active site changes shape, so the substrate can no longer bind.","[1] The enzyme is denatured or loses its shape (accept: bonds holding the shape break); [1] The active site changes shape (do not accept: the enzyme is killed); [1] The substrate no longer fits or binds, so fewer enzyme–substrate complexes form"',
+    '"Compare osmosis and active transport.",,,,,,written,,4,,Membranes,"Osmosis is the passive movement of water across a partially permeable membrane down a water potential gradient; it needs no energy. Active transport moves substances against a concentration gradient using carrier proteins and energy from ATP.","[1] Osmosis moves water only; [1] Osmosis is passive and needs no ATP; [1] Active transport moves substances against a concentration gradient; [1] Active transport uses carrier proteins and ATP"',
+    '"Which organelle is the site of aerobic respiration?",Nucleus,Mitochondrion,Ribosome,Golgi apparatus,Chloroplast,single,B,1,,Organelles,,'
+  ].join('\n')
+  const cellModule = db.prepare(`SELECT id FROM modules WHERE name = 'Cell Biology'`).pluck().get() as number
+  const wq = commitImport(db, { moduleId: cellModule, filename: 'Written practice.csv', text: writtenCsv, title: 'Written practice', mode: 'new', targetQuizId: null })
+  const wa = attempts.startAttempt(db, {
+    quizId: wq.quizId,
+    settings: { shuffleQuestions: false, shuffleOptions: false, feedback: 'end', timeLimitMinutes: null, marking: 'strict', aiMarking: true },
+    practiceFromAttemptId: null,
+    replaceInProgress: true
+  })
+  const [w1, w2, c1] = attempts.getSession(db, wa).questions
+  attempts.saveWritten(db, wa, w1.id, 'The heat makes the enzyme lose its 3D shape so the substrate cant fit into it anymore.')
+  attempts.saveWritten(db, wa, w2.id, 'Osmosis is water moving and it is passive. Active transport needs energy from ATP to move things.')
+  attempts.saveAnswer(db, { attemptId: wa, questionId: c1.id, selected: [c1.options[1].id] })
+  for (const [q, s] of [[w1, 52], [w2, 95], [c1, 9]] as const) {
+    db.prepare('UPDATE responses SET time_spent_seconds = ? WHERE attempt_id = ? AND question_id = ?').run(s, wa, q.id)
+  }
+  attempts.submitAttempt(db, wa, new Date(now - 2 * 3_600_000).toISOString())
+  attempts.applyMarking(db, wa, w1.id, {
+    points: [
+      { awarded: 1, evidence: 'lose its 3D shape', reason: 'Losing the 3D shape is equivalent to denaturing.' },
+      { awarded: 0, evidence: '', reason: 'The active site is not mentioned.' },
+      { awarded: 1, evidence: 'the substrate cant fit into it anymore', reason: 'States the substrate no longer fits.' }
+    ],
+    feedback: 'You explained denaturing and the loss of fit well. Say specifically that the active site changes shape.',
+    markedBy: 'ai',
+    model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+    markedAt: new Date().toISOString(),
+    edited: false
+  })
+
   // An unfinished attempt to resume.
   const open = attempts.startAttempt(db, {
     quizId: quizIds[1].id,

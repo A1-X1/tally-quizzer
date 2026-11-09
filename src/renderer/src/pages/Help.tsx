@@ -1,41 +1,11 @@
-import { useEffect, useState } from 'react'
-import templateCsv from '../../../../samples/template.csv?raw'
+import { useEffect } from 'react'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { QuestionPreview } from '../components/QuestionView'
+import { ChatGuides } from '../components/AiSetup'
 import { useToast } from '../components/ui'
 import { href } from '../lib/router'
 import type { ParsedQuestion } from '../../../shared/types'
-
-export const AI_PROMPT = `Create a multiple-choice quiz as raw CSV from the material I provide.
-
-Topic: [TOPIC]
-Number of questions: [NUMBER]
-Difficulty: [EASY / MEDIUM / HARD / MIXED]
-Source material: [PASTE NOTES OR ATTACH FILES]
-
-Output only the CSV, in a single code block or as a downloadable .csv file. Do not add commentary.
-
-Use exactly this header:
-question,option_a,option_b,option_c,option_d,option_e,type,correct,marks,explanation,topic
-
-Rules:
-- Every question must have exactly five distinct, non-empty options.
-- type must be "single" or "multi".
-- A single question must have exactly one correct letter.
-- A multi question must have one or more correct letters, separated by semicolons, for example A;C;E.
-- Use a mix of single and multi questions unless told otherwise.
-- marks must be a positive number. Use 1 for simple recall and more for multi-step or multi-answer questions.
-- Wrap any field containing a comma, quote, or line break in double quotes. Escape a double quote by doubling it.
-- Write mathematics in LaTeX using $...$ and code in backticks.
-- Every explanation must say why the correct answer is right and address the main misconception.
-- topic must be a short subtopic name, used consistently.
-- Base every question on the source material. Make distractors plausible and avoid "all of the above" or "none of the above".
-- Vary the position of the correct answers.
-- Check every row against these rules before responding.
-
-Follow the structure of this example:
-${templateCsv.trim()}`
 
 const SECTIONS = [
   { id: 'start', label: 'Quick start' },
@@ -81,11 +51,17 @@ const MULTI_EXAMPLE: ParsedQuestion = {
 const COLUMNS: { name: string; required: boolean; rule: string }[] = [
   { name: 'question', required: true, rule: 'The question text. Maths in $…$, code in backticks.' },
   { name: 'option_a … option_e', required: true, rule: 'Five options. All must be filled in and different from each other.' },
-  { name: 'type', required: true, rule: 'single (one correct answer, radio buttons) or multi (one or more, tick boxes).' },
+  { name: 'type', required: true, rule: 'single (one correct answer, radio buttons), multi (one or more, tick boxes) or written (a typed answer).' },
   { name: 'correct', required: true, rule: 'The correct letters, separated by semicolons: C, or A;C;E. Case does not matter.' },
   { name: 'marks', required: false, rule: 'A positive number such as 1, 2 or 0.5. Empty means 1.' },
   { name: 'explanation', required: false, rule: 'Shown after the question is marked. Say why the answer is right.' },
-  { name: 'topic', required: false, rule: 'A short subtopic name, used for the per-topic breakdown.' }
+  { name: 'topic', required: false, rule: 'A short subtopic name, used for the per-topic breakdown.' },
+  { name: 'model_answer', required: false, rule: 'Written questions only: a full-mark answer, shown after marking.' },
+  {
+    name: 'mark_scheme',
+    required: false,
+    rule: 'Written questions only: each creditworthy point as [marks] description, separated by semicolons, e.g. [2] Names the mitochondrion; [1] Mentions ATP. Add (accept: …) or (do not accept: …) inside a point.'
+  }
 ]
 
 const ERRORS: { problem: string; fix: string }[] = [
@@ -119,21 +95,10 @@ const ERRORS: { problem: string; fix: string }[] = [
 
 export function HelpPage({ section }: { section: string | null }) {
   const toast = useToast()
-  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (section) document.getElementById(`help-${section}`)?.scrollIntoView({ block: 'start' })
   }, [section])
-
-  const copy = async (): Promise<void> => {
-    try {
-      await api('help:copy', { text: AI_PROMPT })
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2400)
-    } catch (e) {
-      toast(errorMessage(e), 'bad')
-    }
-  }
 
   const save = async (which: 'template' | 'example'): Promise<void> => {
     try {
@@ -298,18 +263,23 @@ export function HelpPage({ section }: { section: string | null }) {
                 <p className="eyebrow">Fastest way to a quiz</p>
                 <h2 id="h-ai">Create quizzes with AI</h2>
               </div>
-              <button type="button" className="btn btn-primary" onClick={copy} data-testid="copy-prompt">
-                <Icon name={copied ? 'check' : 'copy'} size={16} /> {copied ? 'Copied' : 'Copy prompt'}
-              </button>
             </div>
-            <ol className="ai-steps">
-              <li>Copy the prompt and paste it into the AI assistant you use.</li>
-              <li>Replace the bracketed parts and paste or attach your notes.</li>
-              <li>Save the reply as a .csv file and upload it. Tally will point out any row that breaks the rules.</li>
-            </ol>
-            <pre className="prompt" tabIndex={0} aria-label="AI prompt">
-              <code>{AI_PROMPT}</code>
-            </pre>
+            <div className="ai-ways">
+              <div>
+                <h3 className="h-small">In Tally, with an OpenRouter key</h3>
+                <p className="muted">
+                  Choose <strong>New quiz → Generate with AI</strong>, describe the topic, add your PDFs, Word files or
+                  slides, and pick multiple choice, written or mixed. Tally checks every question before you save it, and
+                  marks written answers against their mark schemes. One OpenRouter key gives access to Claude, GPT,
+                  Gemini and free models. Set it up in <a href={href({ name: 'settings' })}>Settings → AI</a>.
+                </p>
+              </div>
+              <div>
+                <h3 className="h-small">In the AI chat you already use</h3>
+                <p className="muted">No key needed. Copy the prompt, follow the steps for your assistant, and import the CSV it gives you.</p>
+              </div>
+            </div>
+            <ChatGuides />
           </section>
 
           <section id="help-data" className="help-section" aria-labelledby="h-data">

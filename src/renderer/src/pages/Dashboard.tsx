@@ -92,7 +92,7 @@ function FirstRun({ onChanged, hasModule }: { onChanged: () => void; hasModule: 
       <div className="firstrun-actions">
         {hasModule ? (
           <a className="btn btn-primary btn-lg" href={href({ name: 'upload', moduleId: null })}>
-            <Icon name="upload" size={18} /> Upload a quiz
+            <Icon name="plus" size={18} /> Create a quiz
           </a>
         ) : (
           <button type="button" className="btn btn-primary btn-lg" onClick={() => setCreating(true)}>
@@ -114,10 +114,10 @@ function FirstRun({ onChanged, hasModule }: { onChanged: () => void; hasModule: 
         <li>
           <span className="step-n num">2</span>
           <div>
-            <p className="step-title">Upload a quiz as CSV</p>
+            <p className="step-title">Create a quiz</p>
             <p className="muted">
-              Five options per question, one answer or several.{' '}
-              <a href={href({ name: 'help', section: 'ai' })}>Have an AI write one from your notes.</a>
+              Generate one from your notes with AI, or import a CSV.{' '}
+              <a href={href({ name: 'help', section: 'ai' })}>How it works.</a>
             </p>
           </div>
         </li>

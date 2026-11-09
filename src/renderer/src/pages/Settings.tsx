@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { RestoreCheck, UpdateInfo } from '../../../shared/types'
 import { Toggle } from '../components/ui'
+import { AiConnection } from '../components/AiSetup'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { Dialog, ErrorNote, Loading, Segmented, useLoad, useToast } from '../components/ui'
@@ -63,6 +64,17 @@ export function SettingsPage({ onDataChanged }: { onDataChanged: () => void }) {
               ]}
             />
           </div>
+        </div>
+      </section>
+
+      <section className="settings-section" aria-labelledby="s-ai" id="settings-ai">
+        <h2 id="s-ai" className="settings-h">AI</h2>
+        <div className="settings-body">
+          <p className="muted small settings-intro">
+            Generate quizzes from your notes and mark written answers. Tally uses OpenRouter, which gives one key for many
+            models, including free ones.
+          </p>
+          <AiConnection />
         </div>
       </section>
 

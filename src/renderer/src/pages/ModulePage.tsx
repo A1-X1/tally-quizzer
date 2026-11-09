@@ -59,7 +59,7 @@ export function ModulePage({ id }: { id: number }) {
         <div className="page-actions">
           {!m.archivedAt ? (
             <a className="btn btn-primary" href={href({ name: 'upload', moduleId: m.id })}>
-              <Icon name="upload" size={16} /> Upload quiz
+              <Icon name="plus" size={16} /> New quiz
             </a>
           ) : null}
           <button type="button" className="btn btn-secondary" onClick={() => setEditing(true)}>
@@ -117,12 +117,12 @@ export function ModulePage({ id }: { id: number }) {
             action={
               !m.archivedAt ? (
                 <a className="btn btn-secondary" href={href({ name: 'upload', moduleId: m.id })}>
-                  Upload a CSV
+                  Create a quiz
                 </a>
               ) : undefined
             }
           >
-            Upload a CSV of questions on this subject. <a href={href({ name: 'help', section: 'csv' })}>See the format.</a>
+            Create a quiz of questions on this subject. <a href={href({ name: 'help', section: 'csv' })}>See the format.</a>
           </Empty>
         ) : (
           <div className="table-wrap">

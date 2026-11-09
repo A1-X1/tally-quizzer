@@ -40,8 +40,8 @@ for (const theme of ['light', 'dark'] as const) {
       await page.locator('#main').evaluate((m) => m.scrollTo(0, 900))
       await shot('dashboard-lower')
       const scrollTo = async (sel: string, name: string): Promise<void> => {
-        await page.locator(sel).scrollIntoViewIfNeeded()
-        await page.locator(sel).evaluate((el) => el.scrollIntoView({ block: 'start' }))
+        await page.locator(sel).first().scrollIntoViewIfNeeded()
+        await page.locator(sel).first().evaluate((el) => el.scrollIntoView({ block: 'start' }))
         await page.waitForTimeout(900)
         await shot(name)
       }
@@ -65,6 +65,15 @@ for (const theme of ['light', 'dark'] as const) {
       await scrollTo('#time-h', 'result-time')
       await page.locator('#main').evaluate((m) => m.scrollTo(0, 2200))
       await shot('result-review')
+      await go('#/result/27', 'written-result', '[data-testid=needs-marking]')
+      await scrollTo('.written-review', 'written-review')
+      await page.locator('[data-unmarked="true"]').scrollIntoViewIfNeeded()
+      await page.waitForTimeout(500)
+      await shot('written-self-mark')
+      await go('#/upload?module=2', 'new-quiz', '.method-cards')
+      await page.getByTestId('method-ai').click()
+      await page.waitForTimeout(500)
+      await shot('new-quiz-ai-setup')
       const resume = page.getByTestId('resume-card')
       await page.evaluate(() => (location.hash = '#/'))
       await resume.getByRole('link').click()
@@ -82,6 +91,28 @@ for (const theme of ['light', 'dark'] as const) {
       await close(r)
     })
   }
+  test(`onboarding ${theme}`, async () => {
+    test.skip(!process.env.TALLY_SCREENSHOTS, 'Set TALLY_SCREENSHOTS=1 to capture design screenshots')
+    const env = newEnv()
+    const r = await launch(env)
+    await r.app.evaluate(({ nativeTheme }, t) => (nativeTheme.themeSource = t), theme)
+    await r.page.getByRole('button', { name: /Create my data folder/ }).click()
+    await r.page.getByTestId('onboarding').waitFor()
+    for (const size of SIZES) {
+      await r.app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setContentSize(s.width, s.height), size)
+      await r.page.waitForTimeout(400)
+      await r.page.screenshot({ path: path.join(OUT, `${theme}-${size.name}-onboarding.png`) })
+    }
+    await r.page.getByTestId('path-ai').click()
+    await r.page.waitForTimeout(400)
+    await r.page.screenshot({ path: path.join(OUT, `${theme}-large-onboarding-ai.png`) })
+    await r.page.getByTestId('path-chat').click()
+    await r.page.getByTestId('path-chat').scrollIntoViewIfNeeded()
+    await r.page.waitForTimeout(400)
+    await r.page.screenshot({ path: path.join(OUT, `${theme}-large-onboarding-chat.png`) })
+    await close(r)
+  })
+
   test(`welcome ${theme}`, async () => {
     test.skip(!process.env.TALLY_SCREENSHOTS, 'Set TALLY_SCREENSHOTS=1 to capture design screenshots')
     const env = newEnv()

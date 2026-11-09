@@ -18,8 +18,10 @@ Tally is a desktop app for revising with multiple-choice quizzes. You sort quizz
 Everything stays on your computer in a single file you choose. There is no account, no sign-in and no internet connection. Tally makes no network requests.
 
 - Modules for each subject, with a colour, an optional course code and a description.
-- Quizzes uploaded as CSV files, with every question checked before anything is saved.
-- One-answer questions (radio buttons) and select-all-that-apply questions (tick boxes), five options each.
+- **New quiz → Generate with AI:** describe a topic, add your PDFs, Word documents or slides, and choose multiple choice, written answers or a mix. Your material is the source of truth. Uses your own OpenRouter key; free models work.
+- **New quiz → Import a file:** CSV files from a spreadsheet or from the AI chat you already use (Claude, ChatGPT, Gemini), with every question checked before anything is saved.
+- One-answer questions (radio buttons), select-all-that-apply questions (tick boxes) and written questions you answer in your own words.
+- Written answers marked point by point against a mark scheme, by the AI (quoting the words that earned each mark) or by you. You can change any mark.
 - Maths written in LaTeX between `$…$` and code in `backticks`.
 - Shuffling, time limits, feedback after each question or at the end, and strict or partial marking.
 - Every answer, mark and second recorded for every attempt. Close the app mid-quiz and pick up where you left off.
@@ -95,17 +97,19 @@ One question per row. The header row must contain these columns, in any order:
 question,option_a,option_b,option_c,option_d,option_e,type,correct
 ```
 
-These columns are optional: `marks`, `explanation`, `topic`.
+These columns are optional: `marks`, `explanation`, `topic`, and, for written questions, `model_answer` and `mark_scheme`.
 
 | Column | What goes in it |
 |---|---|
 | `question` | The question. Maths between `$…$` (inline) or `$$…$$` (display); code between backticks. |
 | `option_a` … `option_e` | Exactly five options, all filled in and all different. |
-| `type` | `single` (one correct answer) or `multi` (one or more correct answers). |
+| `type` | `single` (one correct answer), `multi` (one or more correct answers) or `written` (a typed answer; leave the options and `correct` empty). |
 | `correct` | The correct letters, separated by semicolons: `C`, or `A;C;E`. Case doesn't matter. A `single` question has exactly one; a `multi` question has between one and five. |
 | `marks` | A positive number. Empty means 1. |
 | `explanation` | Shown when the answer is revealed. |
 | `topic` | A short subtopic name, used for per-topic statistics. |
+| `model_answer` | Written questions only: a full-mark answer, shown after marking. |
+| `mark_scheme` | Written questions only: each creditworthy point as `[marks] description`, separated by semicolons, e.g. `[2] Names the mitochondrion; [1] Mentions ATP`. Add `(accept: …)` or `(do not accept: …)` inside a point. `marks` must equal the total, or be left empty. |
 
 Wrap any value containing a comma, a double quote or a line break in double quotes, and write a double quote inside such a value as `""`. Tally reads UTF-8 with or without a BOM, and Windows or Unix line endings.
 
@@ -120,6 +124,33 @@ This is [`samples/template.csv`](samples/template.csv). [`samples/example_quiz.c
 When you upload a file, Tally checks all of it first. If anything is wrong, it lists every problem with its row number (the header is row 1, as in a spreadsheet), the column, and how to fix it, and saves nothing. Uploading the exact same file to the same module twice is detected. Uploading a changed file with the same title lets you **Save as new version** (past attempts keep the questions they were taken on) or **Create separate quiz**.
 
 Files are limited to 2 MB and 500 questions. Everything in a CSV is treated as text: HTML is shown literally and never runs.
+
+## Creating quizzes with AI
+
+The first time you open Tally (after choosing a data folder) it offers two ways to make quizzes faster. You can change either later in **Settings → AI** and **Help**.
+
+**In Tally, with an OpenRouter key.** [OpenRouter](https://openrouter.ai) gives one key for many models (Claude, GPT, Gemini and others), including free ones.
+
+1. Create an account at openrouter.ai.
+2. Open **Settings → Keys**, choose **Create key**, name it "Tally" and copy it. It starts with `sk-or-` and is only shown once.
+3. Paste it into Tally. Tally checks it, picks a free model that works for your account, and stores the key on this computer only: encrypted by the system keychain where one is available (on Linux without a keyring, in a file only your user account can read). It is never put in your data folder.
+
+Free models (names ending in `:free`) cost nothing but allow a limited number of requests a day and can be slow or busy. If OpenRouter's privacy or guardrail settings on your account block a model, Tally says so; choose another model in Settings, where each choice is tested.
+
+Then choose **New quiz → Generate with AI**: describe the topic, optionally add study files (PDF, .docx, .pptx, .txt, .md), choose **Multiple choice**, **Mixed** or **Written only**, the difficulty and how many questions. When you add files, the AI is told to treat them as the only source of truth and to cite where each question comes from. Tally validates the result with the same rules as an imported CSV, asks the model to fix any rows that break them, leaves out any that still do, and shows you a preview before anything is saved.
+
+When AI features are used, the topic, the text of your files and your written answers are sent to OpenRouter and the model's provider. Nothing else leaves your computer, and Tally makes no other network requests.
+
+**In the AI chat you already use.** Help → *Create quizzes with AI* has step-by-step guides for Claude, ChatGPT and Gemini (including reusable Projects and Gems) and two prompts to copy: multiple choice, and with written answers. Save the reply as a `.csv` file and choose **New quiz → Import a file**.
+
+## Written answers
+
+Written questions have a model answer and a mark scheme of independent points, each worth a number of marks. When you submit, they are marked in one of two ways:
+
+- **By the AI** (if you have a key and leave *Mark written answers with AI* on). It marks each point separately, quotes the words in your answer that earn it, and follows fixed rules shown with worked examples: equivalent wording counts, spelling doesn't unless it changes a technical term, a correct point contradicted by a wrong one earns nothing, vague or off-scheme content earns nothing, and instructions inside an answer are ignored. It runs at temperature 0 so the same answer gets the same mark.
+- **By you**, against the same scheme, point by point.
+
+Either way, you can change any mark afterwards and the score updates.
 
 ## Updating
 

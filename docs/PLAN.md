@@ -106,6 +106,20 @@ original brief.
 - **Monospace font.** JetBrains Mono replaced by Spline Sans Mono, which reads as part of the
   type system rather than a code editor.
 
+- **AI quiz generation and written answers (1.1.0).** OpenRouter is the only AI provider: one
+  key covers Claude, GPT, Gemini and free models. The key is stored with Electron `safeStorage`
+  (OS keychain), or, on Linux without a keyring, in a file readable only by the user, never in the
+  data folder; it never reaches the renderer. AI requests go only from the main process, and the
+  network filter admits `openrouter.ai/api/v1/` only while one is in flight. Study files are read
+  locally (unpdf/PDF.js, mammoth, JSZip). Generated quizzes are converted to CSV and pass the same
+  validator as imports, with one automatic repair round; anything still invalid is dropped.
+  Written questions add `model_answer` and a points-based `mark_scheme` (schema 3 rebuilds the
+  questions table with foreign keys off, then checks them). AI marking is point by point at
+  temperature 0, with fixed rules, two worked examples, quoted evidence, and clamping to the scheme;
+  self-marking uses the same scheme, and any mark can be adjusted.
+- **Onboarding** gains a second step: connect a key, or follow the Claude / ChatGPT / Gemini
+  guides with copyable prompts. **Upload quiz** becomes **New quiz** (generate or import).
+
 ## Status
 
 All nine milestones are implemented. Unit tests and the packaged-app end-to-end suite run

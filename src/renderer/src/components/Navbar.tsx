@@ -42,8 +42,8 @@ export function Navbar({ route }: { route: Route }) {
           <Icon name="settings" size={18} />
         </a>
         <a className="nav-cta" href={href({ name: 'upload', moduleId: route.name === 'module' ? route.id : null })}>
-          <Icon name="upload" size={16} weight={2.2} />
-          <span>Upload quiz</span>
+          <Icon name="plus" size={16} weight={2.4} />
+          <span>New quiz</span>
         </a>
       </nav>
     </header>

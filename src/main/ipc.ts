@@ -42,6 +42,21 @@ import templateCsv from '../../samples/template.csv?raw'
 import exampleCsv from '../../samples/example_quiz.csv?raw'
 import { applyTitleBarTheme, isTrustedUrl } from './window'
 import { checkForUpdates, isOfferedDownload } from './updates'
+import * as ai from './ai/service'
+import { aiSettings, forgetKey, loadKey, saveKey, setAiMarking, setModel } from './ai/keystore'
+import { verifyKey } from './ai/openrouter'
+import { MAX_SOURCE_BYTES, SOURCE_EXTENSIONS } from './ai/extract'
+import type { DB } from './db/connection'
+
+/** Whether an attempt asked for AI marking and a key is available to do it. */
+function attemptUsesAi(db: DB, attemptId: number): boolean {
+  const settings = db.prepare('SELECT settings_json FROM attempts WHERE id = ?').pluck().get(attemptId) as string | undefined
+  try {
+    return !!settings && (JSON.parse(settings) as { aiMarking?: boolean }).aiMarking === true && !!loadKey() && !!aiSettings().model
+  } catch {
+    return false
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -65,7 +80,9 @@ const settingsSchema = z
     shuffleOptions: z.boolean(),
     feedback: z.enum(['end', 'each']),
     timeLimitMinutes: z.number().int().min(1).max(600).nullable(),
-    marking: z.enum(['strict', 'partial'])
+    marking: z.enum(['strict', 'partial']),
+    aiMarking: z.boolean().optional(),
+    questionTypes: z.enum(['all', 'choice', 'written']).optional()
   })
   .strict()
 
@@ -336,9 +353,42 @@ export function registerIpc(): void {
     z.object({ attemptId: id, questionId: id, selected: z.array(id).max(5) }).strict(),
     (req) => attempts.saveAnswer(requireDb().db, req)
   )
-  handle('attempts:reveal', z.object({ attemptId: id, questionId: id }).strict(), (req) =>
-    attempts.revealAnswer(requireDb().db, req.attemptId, req.questionId)
+  handle('attempts:reveal', z.object({ attemptId: id, questionId: id }).strict(), async (req) => {
+    const { db } = requireDb()
+    const fb = attempts.revealAnswer(db, req.attemptId, req.questionId)
+    if (fb.written && !fb.written.marking && attemptUsesAi(db, req.attemptId)) {
+      await ai.markOne(db, req.attemptId, req.questionId)
+      return attempts.revealAnswer(db, req.attemptId, req.questionId)
+    }
+    return fb
+  })
+  handle(
+    'attempts:answerWritten',
+    z.object({ attemptId: id, questionId: id, text: z.string().max(8000) }).strict(),
+    (req) => attempts.saveWritten(requireDb().db, req.attemptId, req.questionId, req.text)
   )
+  handle('attempts:markWritten', z.object({ attemptId: id, questionId: id }).strict(), async (req) => {
+    const { db } = requireDb()
+    await ai.markOne(db, req.attemptId, req.questionId)
+    return attempts.revealAnswer(db, req.attemptId, req.questionId)
+  })
+  handle(
+    'attempts:adjustMarks',
+    z.object({ attemptId: id, questionId: id, awarded: z.array(z.number().min(0).max(1000)).max(20) }).strict(),
+    (req) => {
+      const { db } = requireDb()
+      attempts.adjustMarking(db, req.attemptId, req.questionId, req.awarded)
+      return attempts.getResult(db, req.attemptId)
+    }
+  )
+  handle('attempts:markPending', z.object({ id }).strict(), async (req) => {
+    const { db } = requireDb()
+    const r = await ai.markAll(db, req.id)
+    if (r.failed > 0 && attempts.unmarkedWritten(db, req.id).length > 0) {
+      throw new UserError(`${r.failed} written ${r.failed === 1 ? 'answer' : 'answers'} could not be marked by the AI. Mark ${r.failed === 1 ? 'it' : 'them'} yourself, or try again.`, 'AI')
+    }
+    return attempts.getResult(db, req.id)
+  })
   handle('attempts:flag', z.object({ attemptId: id, questionId: id, flagged: z.boolean() }).strict(), (req) =>
     attempts.setFlag(requireDb().db, req.attemptId, req.questionId, req.flagged)
   )
@@ -355,9 +405,13 @@ export function registerIpc(): void {
       .strict(),
     (req) => attempts.tick(requireDb().db, req)
   )
-  handle('attempts:submit', z.object({ id }).strict(), (req) => {
+  handle('attempts:submit', z.object({ id }).strict(), async (req) => {
     const { db } = requireDb()
     attempts.submitAttempt(db, req.id)
+    if (attemptUsesAi(db, req.id) && attempts.unmarkedWritten(db, req.id).length > 0) {
+      // Any answer the AI cannot mark stays pending for the student to mark.
+      await ai.markAll(db, req.id).catch(() => undefined)
+    }
     return attempts.getResult(db, req.id)
   })
   handle('attempts:abandon', z.object({ id }).strict(), (req) => attempts.abandonAttempt(requireDb().db, req.id))
@@ -419,6 +473,106 @@ export function registerIpc(): void {
     )
     fs.writeFileSync(file, '﻿' + toCsv([header, ...safe]), 'utf8')
     return { saved: true, path: file, rows: rows.length }
+  })
+
+  // ----- AI (OpenRouter) -----
+  handle('ai:status', null, () => aiSettings())
+  handle('ai:saveKey', z.object({ key: z.string().trim().min(10).max(300) }).strict(), async (req) => {
+    const key = req.key.trim()
+    if (!/^sk-or-[A-Za-z0-9_-]+$/.test(key)) {
+      throw new UserError('That does not look like an OpenRouter key. Keys start with "sk-or-".')
+    }
+    const info = await verifyKey(key).catch((e: unknown) => {
+      throw new UserError(e instanceof Error ? e.message : String(e), 'AI')
+    })
+    saveKey(key)
+    const model = await ai.ensureModel()
+    return { label: info.label, freeTier: info.freeTier, model }
+  })
+  handle('ai:forgetKey', null, () => forgetKey())
+  handle('ai:models', null, async () => {
+    try {
+      return ai.toAiModels(await ai.models())
+    } catch (e) {
+      throw new UserError(e instanceof Error ? e.message : String(e), 'AI')
+    }
+  })
+  handle('ai:setModel', z.object({ model: z.string().min(3).max(200).regex(/^[\w.\-/:]+$/) }).strict(), (req) => setModel(req.model))
+  handle('ai:setMarking', z.object({ on: z.boolean() }).strict(), (req) => setAiMarking(req.on))
+  handle('ai:testModel', z.object({ model: z.string().min(3).max(200).regex(/^[\w.\-/:]+$/) }).strict(), async (req) => {
+    const key = loadKey()
+    if (!key) throw new UserError('Add an OpenRouter key first.', 'NO_AI')
+    return ai.testModel(key, req.model)
+  })
+  handle('ai:openKeysPage', null, async () => {
+    await shell.openExternal('https://openrouter.ai/settings/keys')
+  })
+  handle('ai:pickSources', null, async (_r, e) => {
+    const w = win(e)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Add study material',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Study material', extensions: SOURCE_EXTENSIONS },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    }
+    const res = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
+    if (res.canceled) return []
+    const out = []
+    for (const f of res.filePaths.slice(0, 10)) {
+      const st = fs.statSync(f)
+      if (st.size > MAX_SOURCE_BYTES) throw new UserError(`“${path.basename(f)}” is larger than ${MAX_SOURCE_BYTES / 1024 / 1024} MB.`)
+      try {
+        out.push(await ai.addSource(path.basename(f), new Uint8Array(fs.readFileSync(f))))
+      } catch (err) {
+        throw new UserError(err instanceof Error ? err.message : String(err))
+      }
+    }
+    return out
+  })
+  handle(
+    'ai:addSource',
+    z
+      .object({
+        name: z.string().min(1).max(255),
+        bytes: z.custom<Uint8Array>((v) => v instanceof Uint8Array && v.byteLength <= MAX_SOURCE_BYTES, 'File too large')
+      })
+      .strict(),
+    async (req) => {
+      try {
+        return await ai.addSource(req.name, req.bytes)
+      } catch (err) {
+        throw new UserError(err instanceof Error ? err.message : String(err))
+      }
+    }
+  )
+  handle('ai:dropSource', z.object({ token: z.string().max(64) }).strict(), (req) => ai.dropSource(req.token))
+  handle(
+    'ai:generate',
+    z
+      .object({
+        moduleId: id,
+        topic: z.string().trim().min(3).max(2000),
+        count: z.number().int().min(3).max(40),
+        difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
+        format: z.enum(['choice', 'mixed', 'written']),
+        instructions: z.string().max(2000).nullable(),
+        sourceTokens: z.array(z.string().max(64)).max(10)
+      })
+      .strict(),
+    (req) => ai.generate(requireDb().db, req)
+  )
+
+  // ----- Onboarding -----
+  handle('onboarding:get', null, () => {
+    if (!ctx.db) return true
+    return ctx.db.prepare(`SELECT value FROM settings WHERE key = 'onboarding_done'`).pluck().get() === '1'
+  })
+  handle('onboarding:done', null, () => {
+    requireDb()
+      .db.prepare(`INSERT INTO settings (key, value) VALUES ('onboarding_done', '1') ON CONFLICT(key) DO UPDATE SET value = '1'`)
+      .run()
   })
 
   // ----- Updates (only ever on request) -----

@@ -19,7 +19,10 @@ const code = [
   ['scheduler', 'Dependency of React.'],
   ['katex', 'Maths typesetting, including the KaTeX fonts.'],
   ['better-sqlite3', 'SQLite bindings. SQLite itself is in the public domain.'],
-  ['zod', 'Input validation.']
+  ['zod', 'Input validation.'],
+  ['unpdf', 'Reading text from PDF study material. Bundles PDF.js by Mozilla (Apache License 2.0).'],
+  ['mammoth', 'Reading text from Word (.docx) study material.'],
+  ['jszip', 'Reading PowerPoint (.pptx) files. Used under the MIT licence option.']
 ]
 const fonts = [
   ['@fontsource-variable/bricolage-grotesque', 'Bricolage Grotesque', 'Display type'],

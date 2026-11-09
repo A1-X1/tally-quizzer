@@ -18,7 +18,8 @@ function cspMeta(): Plugin {
 export default defineConfig({
   main: {
     build: {
-      externalizeDeps: true,
+      // unpdf is ESM-only, so it is bundled into the main process; everything else stays external.
+      externalizeDeps: { exclude: ['unpdf'] },
       rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } }
     }
   },

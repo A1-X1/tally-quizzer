@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { AttemptSettings, QuizTiming } from '../../../shared/types'
+import { useEffect, useState } from 'react'
+import type { AiStatus, AttemptSettings, QuizTiming } from '../../../shared/types'
 import { Bars, HBars } from '../components/Charts'
 import { RichText } from '../components/RichText'
 import { api, errorCode, errorMessage } from '../api'
@@ -20,6 +20,15 @@ const DEFAULTS: AttemptSettings = {
 export function QuizSetup({ id }: { id: number }) {
   const { data, error, reload } = useLoad(() => api('quizzes:detail', { id }), [id])
   const [s, setS] = useState<AttemptSettings>(DEFAULTS)
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null)
+  useEffect(() => {
+    api('ai:status')
+      .then((st) => {
+        setAiStatus(st)
+        setS((x) => ({ ...x, aiMarking: st.configured && st.aiMarking }))
+      })
+      .catch(() => undefined)
+  }, [])
   const [limitOn, setLimitOn] = useState(false)
   const [limit, setLimit] = useState(20)
   const [busy, setBusy] = useState(false)
@@ -41,7 +50,11 @@ export function QuizSetup({ id }: { id: number }) {
     try {
       const session = await api('attempts:start', {
         quizId: q.id,
-        settings: { ...s, timeLimitMinutes: limitOn ? Math.max(1, Math.min(600, Math.round(limit))) : null },
+        settings: {
+          ...s,
+          aiMarking: !!s.aiMarking && !!aiStatus?.configured,
+          timeLimitMinutes: limitOn ? Math.max(1, Math.min(600, Math.round(limit))) : null
+        },
         practiceFromAttemptId: null,
         replaceInProgress: replace
       })
@@ -110,8 +123,8 @@ export function QuizSetup({ id }: { id: number }) {
               <dd className="num">{v.singleCount}</dd>
             </div>
             <div>
-              <dt>Select all</dt>
-              <dd className="num">{v.multiCount}</dd>
+              <dt>{v.writtenCount ? 'Select all · Written' : 'Select all'}</dt>
+              <dd className="num">{v.writtenCount ? `${v.multiCount} · ${v.writtenCount}` : v.multiCount}</dd>
             </div>
           </dl>
           <div className="best">
@@ -206,6 +219,33 @@ export function QuizSetup({ id }: { id: number }) {
                 ? 'Full marks only for exactly the right selection; anything else scores zero.'
                 : 'On “select all” questions, each right tick earns a share of the marks and each wrong tick cancels one out, never below zero.'}
             </p>
+            {v.writtenCount > 0 && v.singleCount + v.multiCount > 0 ? (
+              <div className="setup-row">
+                <span className="setup-row-label">Questions</span>
+                <Segmented
+                  label="Which questions"
+                  value={s.questionTypes ?? 'all'}
+                  onChange={(x) => setS({ ...s, questionTypes: x })}
+                  options={[
+                    { value: 'all', label: `All ${v.questionCount}` },
+                    { value: 'choice', label: `Multiple choice ${v.singleCount + v.multiCount}` },
+                    { value: 'written', label: `Written ${v.writtenCount}` }
+                  ]}
+                />
+              </div>
+            ) : null}
+            {v.writtenCount > 0 && s.questionTypes !== 'choice' ? (
+              <Toggle
+                checked={!!s.aiMarking && !!aiStatus?.configured}
+                onChange={(x) => setS({ ...s, aiMarking: x })}
+                label="Mark written answers with AI"
+                description={
+                  aiStatus?.configured
+                    ? 'Marked point by point against each mark scheme when you submit. You can change any mark.'
+                    : 'Add an OpenRouter key in Settings to use this. Otherwise you mark them yourself against the scheme.'
+                }
+              />
+            ) : null}
             <div className="setup-row">
               <Toggle checked={limitOn} onChange={setLimitOn} label="Time limit" />
               {limitOn ? (
