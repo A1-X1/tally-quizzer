@@ -20,7 +20,8 @@ import type {
   RestoreCheck,
   StartAttemptRequest,
   ThemePreference,
-  TickRequest
+  TickRequest,
+  UpdateInfo
 } from './types'
 
 /**
@@ -74,6 +75,10 @@ export interface IpcContract {
   'history:list': [HistoryFilter, AttemptListRow[]]
   'history:export': [HistoryFilter, { saved: boolean; path?: string; rows?: number }]
 
+  'updates:check': [void, UpdateInfo]
+  'updates:open': [{ url: string }, void]
+  'updates:getAutoCheck': [void, boolean]
+  'updates:setAutoCheck': [{ enabled: boolean }, void]
   'settings:getTheme': [void, ThemePreference]
   'settings:setTheme': [{ theme: ThemePreference }, void]
 
@@ -133,6 +138,10 @@ export const CHANNELS = [
   'stats:dashboard',
   'history:list',
   'history:export',
+  'updates:check',
+  'updates:open',
+  'updates:getAutoCheck',
+  'updates:setAutoCheck',
   'settings:getTheme',
   'settings:setTheme',
   'data:info',

@@ -112,6 +112,21 @@ export const MIGRATIONS: ((db: Database.Database) => void)[] = [
         value TEXT NOT NULL
       );
     `)
+  },
+  // 2: richer per-question timing, and the six-colour module palette.
+  (db) => {
+    db.exec(`
+      ALTER TABLE responses ADD COLUMN visit_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE responses ADD COLUMN answer_changes INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE responses ADD COLUMN first_answer_seconds REAL;
+      CREATE INDEX attempts_started ON attempts(started_at);
+      UPDATE modules SET colour = CASE colour
+        WHEN 'plum' THEN 'violet'
+        WHEN 'olive' THEN 'orange'
+        WHEN 'slate' THEN 'cobalt'
+        WHEN 'graphite' THEN 'violet'
+        ELSE colour END;
+    `)
   }
 ]
 

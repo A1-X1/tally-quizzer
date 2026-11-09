@@ -3,6 +3,7 @@ import { api, errorMessage } from '../api'
 import { AttemptsTable } from '../components/AttemptsTable'
 import { Icon } from '../components/Icon'
 import { LineChart } from '../components/LineChart'
+import { HBars } from '../components/Charts'
 import { ModuleDialog } from '../components/ModuleForm'
 import { RichText } from '../components/RichText'
 import { Dialog, Empty, ErrorNote, Field, Loading, Score, Swatch, Toggle, Trend, useLoad, useToast } from '../components/ui'
@@ -241,6 +242,26 @@ export function ModulePage({ id }: { id: number }) {
           )}
         </section>
       </div>
+
+      {data.topicTime.length ? (
+        <section className="section" aria-labelledby="tt-h">
+          <div className="section-head">
+            <h2 id="tt-h">Time by topic</h2>
+          </div>
+          <HBars
+            label={`Seconds per question in each topic of ${m.name}`}
+            rows={data.topicTime.map((t) => ({
+              key: t.topic,
+              label: t.topic,
+              sub: `${Math.round(t.accuracy)}% right · ${t.answered} answered`,
+              value: t.perQuestion,
+              display: `${t.perQuestion}s each`,
+              tone: t.accuracy >= 70 ? 'good' : t.accuracy < 50 ? 'bad' : 'ink'
+            }))}
+          />
+          <p className="viz-note">Average active seconds per question. Long bars in red are where time goes without paying off.</p>
+        </section>
+      ) : null}
 
       <section className="section" aria-labelledby="a-h">
         <div className="section-head">

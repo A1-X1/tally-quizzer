@@ -11,7 +11,7 @@ All three fonts are distributed under the SIL Open Font License, Version 1.1. Th
 |---|---|---|---|
 | Bricolage Grotesque | Display type | 5.3.0 | Copyright 2022 The Bricolage Grotesque Project Authors (https://github.com/ateliertriay/bricolage) |
 | Instrument Sans | Text type | 5.3.0 | Copyright 2022 The Instrument Sans Project Authors (https://github.com/Instrument/instrument-sans) |
-| JetBrains Mono | Figures and data | 5.3.0 | Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) |
+| Spline Sans Mono | Figures and data | 5.3.0 | Copyright 2022 The Spline Sans Mono Project Authors (https://github.com/SorkinType/SplineSansMono) |
 
 <details><summary>SIL Open Font License 1.1</summary>
 

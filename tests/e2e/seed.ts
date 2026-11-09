@@ -72,7 +72,7 @@ function takeAt(db: DB, quizId: number, when: Date, skill: number, rand: () => n
 
 export function seedRealistic(userData: string, documents: string, theme: 'light' | 'dark'): string {
   const dataDir = path.join(documents, 'Tally Data')
-  const db = createDataFolder(dataDir)
+  const db = createDataFolder(dataDir, JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8')).version)
   db.prepare(`INSERT INTO settings (key, value) VALUES ('theme', ?)`).run(theme)
   const mods: { name: string; code: string; colour: ModuleColour; desc: string; quizzes: [string, Q[]][]; skill: number }[] = [
     { name: 'Linear Algebra', code: 'MATH2010', colour: 'cobalt', desc: 'Vector spaces, linear maps, eigenvalues.', quizzes: [['Determinants and inverses', LINEAR.slice(0, 5)], ['Eigenvalues and rank', LINEAR.slice(2)]], skill: 0.55 },
@@ -90,7 +90,7 @@ export function seedRealistic(userData: string, documents: string, theme: 'light
       quizIds.push({ id: r.quizId, skill: m.skill })
     }
   }
-  const dm = createModule(db, { name: 'Discrete Mathematics', code: 'COMP1215', colour: 'plum', description: 'Logic, sets, relations and complexity.' })
+  const dm = createModule(db, { name: 'Discrete Mathematics', code: 'COMP1215', colour: 'violet', description: 'Logic, sets, relations and complexity.' })
   const sq = commitImport(db, { moduleId: dm.id, filename: 'example_quiz.csv', text: sample, title: 'Logic, sets and complexity', mode: 'new', targetQuizId: null })
   quizIds.push({ id: sq.quizId, skill: 0.5 })
 

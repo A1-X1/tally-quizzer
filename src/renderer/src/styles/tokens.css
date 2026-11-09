@@ -1,11 +1,11 @@
 @import '@fontsource-variable/bricolage-grotesque/standard.css';
 @import '@fontsource-variable/instrument-sans/wght.css';
-@import '@fontsource-variable/jetbrains-mono/wght.css';
+@import '@fontsource-variable/spline-sans-mono/wght.css';
 
 :root {
   --font-display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', system-ui, sans-serif;
   --font-text: 'Instrument Sans Variable', 'Instrument Sans', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+  --font-mono: 'Spline Sans Mono Variable', 'Spline Sans Mono', ui-monospace, monospace;
 
   /* Light theme: warm paper, near-black ink, one cobalt accent. */
   --bg: #f5f1e8;
@@ -45,14 +45,13 @@
   --shadow-pop: 0 1px 0 rgba(22, 24, 29, 0.06), 0 12px 32px -12px rgba(22, 24, 29, 0.28);
   --scrim: rgba(22, 24, 29, 0.42);
 
+  /* Module colours: six hues validated for colour-blind separation and 3:1 contrast. */
   --mod-cobalt: #2447f9;
-  --mod-teal: #0d7d8c;
-  --mod-ochre: #b67900;
-  --mod-plum: #8b3c9c;
-  --mod-olive: #637316;
-  --mod-rose: #c23b74;
-  --mod-slate: #4b5b78;
-  --mod-graphite: #3a3d44;
+  --mod-orange: #cf5420;
+  --mod-teal: #1593a8;
+  --mod-ochre: #b07c00;
+  --mod-rose: #d6508a;
+  --mod-violet: #7a4fd6;
 
   --radius-s: 6px;
   --radius-m: 10px;
@@ -108,14 +107,12 @@
   --shadow-pop: 0 1px 0 rgba(0, 0, 0, 0.3), 0 16px 40px -14px rgba(0, 0, 0, 0.7);
   --scrim: rgba(5, 6, 8, 0.62);
 
-  --mod-cobalt: #7d95ff;
-  --mod-teal: #3cb8c6;
-  --mod-ochre: #e0a52f;
-  --mod-plum: #c47fd4;
-  --mod-olive: #a4b84a;
-  --mod-rose: #ef77a6;
-  --mod-slate: #93a3c2;
-  --mod-graphite: #c9c5bb;
+  --mod-cobalt: #5f7cf0;
+  --mod-orange: #d9622f;
+  --mod-teal: #1e9fb3;
+  --mod-ochre: #b8800c;
+  --mod-rose: #d6568a;
+  --mod-violet: #8b6fe0;
 
   color-scheme: dark;
 }

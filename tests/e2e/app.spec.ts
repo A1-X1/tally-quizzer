@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+import Database from 'better-sqlite3'
 import { spawn } from 'node:child_process'
+import { APPLICATION_ID, MIGRATIONS } from '../../src/main/db/schema'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
@@ -380,6 +382,33 @@ test.describe('packaged app', () => {
     await r.page.waitForTimeout(500)
     expect(r.page.url()).toMatch(/^app:\/\/tally\//)
     expect(await blockedRequests(r.app)).toEqual([])
+    await close(r)
+  })
+
+  test('opening data from an older version backs it up first, then upgrades it', async () => {
+    const env = newEnv()
+    const dir = dataDirOf(env)
+    fs.mkdirSync(path.join(dir, 'backups'), { recursive: true })
+    const db = new Database(path.join(dir, 'userdata.sqlite'))
+    db.pragma('journal_mode = DELETE')
+    db.pragma(`application_id = ${APPLICATION_ID}`)
+    MIGRATIONS[0](db)
+    db.pragma('user_version = 1')
+    db.prepare(`INSERT INTO modules (name, colour, created_at) VALUES ('From v1', 'plum', '2026-01-01T00:00:00Z')`).run()
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('app_version', '0.9.0')`).run()
+    db.close()
+    const original = fs.readFileSync(path.join(dir, 'userdata.sqlite'))
+    fs.mkdirSync(env.userData, { recursive: true })
+    fs.writeFileSync(path.join(env.userData, 'config.json'), JSON.stringify({ dataDir: dir }))
+
+    const r = await launch(env)
+    await expect(r.page.getByText(/Updated to Tally .*Your data was backed up first\./)).toBeVisible()
+    const backups = fs.readdirSync(path.join(dir, 'backups')).filter((f) => f.endsWith('-pre-upgrade.sqlite'))
+    expect(backups).toHaveLength(1)
+    expect(fs.readFileSync(path.join(dir, 'backups', backups[0])).equals(original)).toBe(true)
+    await nav(r.page, 'Modules').click()
+    await expect(r.page.getByRole('link', { name: 'From v1' })).toBeVisible()
+    expect(r.consoleErrors).toEqual([])
     await close(r)
   })
 })

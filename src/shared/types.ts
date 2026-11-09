@@ -10,16 +10,8 @@ export type OptionLabel = 'A' | 'B' | 'C' | 'D' | 'E'
 
 export const OPTION_LABELS: readonly OptionLabel[] = ['A', 'B', 'C', 'D', 'E']
 
-export const MODULE_COLOURS = [
-  'cobalt',
-  'teal',
-  'ochre',
-  'plum',
-  'olive',
-  'rose',
-  'slate',
-  'graphite'
-] as const
+/** Six hues, ordered so neighbours stay distinct for colour-blind readers. */
+export const MODULE_COLOURS = ['cobalt', 'orange', 'teal', 'ochre', 'rose', 'violet'] as const
 export type ModuleColour = (typeof MODULE_COLOURS)[number]
 
 // ---------------------------------------------------------------------------
@@ -35,7 +27,13 @@ export interface DataSummary {
 export type BootState =
   | { kind: 'setup'; defaultLocation: string }
   | { kind: 'missing'; dataDir: string; reason: string }
-  | { kind: 'ready'; dataDir: string; theme: ThemePreference }
+  | { kind: 'ready'; dataDir: string; theme: ThemePreference; upgrade: UpgradeNotice | null }
+
+export interface UpgradeNotice {
+  fromVersion: string | null
+  toVersion: string
+  backup: string
+}
 
 export interface FolderInspection {
   token: string
@@ -113,6 +111,22 @@ export interface QuizDetail {
   best: { percentage: number; attemptNumber: number; submittedAt: string } | null
   last: { percentage: number; attemptNumber: number; submittedAt: string } | null
   attempts: AttemptListRow[]
+  timing: QuizTiming
+}
+
+export interface QuizTiming {
+  /** Each question in the current version, with averages over every official attempt at the same prompt. */
+  questions: {
+    position: number
+    prompt: string
+    topic: string | null
+    type: QuestionType
+    seen: number
+    perQuestion: number | null
+    accuracy: number | null
+  }[]
+  topics: { topic: string; perQuestion: number; seconds: number; accuracy: number; answered: number }[]
+  attempts: { attemptNumber: number; submittedAt: string; durationSeconds: number; percentage: number; perQuestion: number }[]
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +265,8 @@ export interface TickRequest {
   questionId: number | null
   seconds: number
   position: number
+  /** True when the question has just been shown, to count visits. */
+  visit?: boolean
 }
 
 export interface AttemptListRow {
@@ -289,6 +305,29 @@ export interface ReviewQuestion {
   answered: boolean
   timeSpent: number
   flagged: boolean
+  visits: number
+  answerChanges: number
+  /** Active seconds on the question before the first option was chosen. */
+  firstAnswerSeconds: number | null
+}
+
+export interface TopicTiming {
+  topic: string
+  seconds: number
+  share: number
+  questions: number
+  perQuestion: number
+  percentage: number
+}
+
+export interface AttemptTiming {
+  questionSeconds: number
+  perQuestion: number
+  median: number
+  rightPerQuestion: number | null
+  wrongPerQuestion: number | null
+  answerChanges: number
+  topics: TopicTiming[]
 }
 
 export interface AttemptResult {
@@ -299,6 +338,7 @@ export interface AttemptResult {
   topics: { topic: string; awarded: number; available: number; percentage: number; questions: number }[]
   questions: ReviewQuestion[]
   wrongCount: number
+  timing: AttemptTiming
 }
 
 // ---------------------------------------------------------------------------
@@ -354,6 +394,18 @@ export interface Dashboard {
   totals: { attempts: number; questionsAnswered: number; secondsStudied: number }
   hasAnyQuiz: boolean
   hasAnyModule: boolean
+  patterns: DashboardPatterns
+}
+
+export interface DashboardPatterns {
+  /** One entry per local day for the last 12 weeks, oldest first. */
+  activity: { date: string; seconds: number; attempts: number }[]
+  timeByModule: { moduleId: number; name: string; colour: ModuleColour; seconds: number; attempts: number }[]
+  /** Counts of official scores in ten-point bands: 0–9, 10–19, … 90–100. */
+  distribution: number[]
+  topicTime: { topic: string; moduleName: string; perQuestion: number; accuracy: number; answered: number }[]
+  types: { type: QuestionType; answered: number; accuracy: number; perQuestion: number }[]
+  weekly: { weekStart: string; attempts: number; seconds: number; average: number | null }[]
 }
 
 export interface ModuleDetail {
@@ -364,6 +416,7 @@ export interface ModuleDetail {
   weakestQuizzes: QuizRow[]
   topics: TopicStat[]
   missed: MissedQuestion[]
+  topicTime: DashboardPatterns['topicTime']
 }
 
 export interface HistoryFilter {
@@ -392,6 +445,16 @@ export interface DataInfo {
   dbBytes: number
   backups: BackupInfo[]
   summary: DataSummary
+}
+
+export interface UpdateInfo {
+  current: string
+  latest: string | null
+  newer: boolean
+  notes: string | null
+  publishedAt: string | null
+  pageUrl: string | null
+  download: { name: string; url: string; bytes: number } | null
 }
 
 export interface RestoreCheck {

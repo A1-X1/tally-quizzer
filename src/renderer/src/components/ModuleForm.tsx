@@ -5,13 +5,11 @@ import { Dialog, ErrorNote, Field } from './ui'
 
 const COLOUR_NAMES: Record<ModuleColour, string> = {
   cobalt: 'Cobalt',
+  orange: 'Orange',
   teal: 'Teal',
   ochre: 'Ochre',
-  plum: 'Plum',
-  olive: 'Olive',
   rose: 'Rose',
-  slate: 'Slate',
-  graphite: 'Graphite'
+  violet: 'Violet'
 }
 
 export function ModuleDialog({

@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { checkDatabaseFile, createDatabase, integrityOk, openDatabase, summarise, type DB } from './db/connection'
+import { checkDatabaseFile, createDatabase, integrityOk, openDatabase, readVersions, recordAppVersion, summarise, type DB } from './db/connection'
+import { SCHEMA_VERSION } from './db/schema'
 import type { BackupInfo, DataInfo, FolderInspection } from '../shared/types'
 import { randomUUID } from 'node:crypto'
 
@@ -97,31 +98,76 @@ export function ensureDataLayout(dataDir: string): void {
 }
 
 /** Create a new data folder. Refuses to touch an existing database. */
-export function createDataFolder(dataDir: string): DB {
+export function createDataFolder(dataDir: string, appVersion = '0.0.0'): DB {
   const dbFile = path.join(dataDir, DB_FILE)
   if (fs.existsSync(dbFile)) throw new Error('This folder already contains Tally data.')
   ensureDataLayout(dataDir)
-  return createDatabase(dbFile)
+  const db = createDatabase(dbFile)
+  recordAppVersion(db, appVersion)
+  return db
 }
 
-export type OpenResult = { ok: true; db: DB } | { ok: false; reason: string }
+export interface UpgradeInfo {
+  fromVersion: string | null
+  toVersion: string
+  fromSchema: number
+  toSchema: number
+  backup: string
+}
 
-/** Open an existing data folder. Never creates a database. */
-export function openDataFolder(dataDir: string): OpenResult {
+export type OpenResult = { ok: true; db: DB; upgrade: UpgradeInfo | null } | { ok: false; reason: string }
+
+/**
+ * Open an existing data folder. Never creates a database.
+ *
+ * Pre-upgrade check: if the database needs a migration, or was last opened by a
+ * different version of Tally, a verified copy is saved to backups/ before anything
+ * changes. If the migration fails, that copy is put back and the error is reported.
+ */
+export function openDataFolder(dataDir: string, appVersion = '0.0.0'): OpenResult {
   const dbFile = path.join(dataDir, DB_FILE)
   if (!fs.existsSync(dataDir)) return { ok: false, reason: 'The folder could not be found. It may be on a drive that is not connected, or it may have been moved or renamed.' }
   if (!fs.existsSync(dbFile)) return { ok: false, reason: `The folder exists but ${DB_FILE} is missing from it.` }
   const check = checkDatabaseFile(dbFile)
   if (!check.valid) return { ok: false, reason: check.reason ?? 'The database could not be read.' }
-  try {
-    const db = openDatabase(dbFile)
-    // Missing sub-folders are harmless; recreate them.
-    fs.mkdirSync(path.join(dataDir, BACKUP_DIR), { recursive: true })
-    fs.mkdirSync(path.join(dataDir, QUIZ_DIR), { recursive: true })
-    return { ok: true, db }
-  } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) }
+
+  const before = readVersions(dbFile)
+  const needsMigration = before.schemaVersion < SCHEMA_VERSION
+  const versionChanged = before.appVersion !== null && before.appVersion !== appVersion
+  let upgrade: UpgradeInfo | null = null
+  if (needsMigration || versionChanged) {
+    const dir = path.join(dataDir, BACKUP_DIR)
+    fs.mkdirSync(dir, { recursive: true })
+    const name = `userdata-${stamp()}-pre-upgrade.sqlite`
+    const dest = path.join(dir, name)
+    try {
+      // The database is closed and uses a rollback journal, so a file copy is consistent.
+      fs.copyFileSync(dbFile, `${dest}.partial`)
+      if (!checkDatabaseFile(`${dest}.partial`).valid) throw new Error('the copy failed verification')
+      fs.renameSync(`${dest}.partial`, dest)
+    } catch (e) {
+      fs.rmSync(`${dest}.partial`, { force: true })
+      return { ok: false, reason: `Tally could not back up your data before updating it, so nothing was changed (${e instanceof Error ? e.message : String(e)}).` }
+    }
+    upgrade = { fromVersion: before.appVersion, toVersion: appVersion, fromSchema: before.schemaVersion, toSchema: SCHEMA_VERSION, backup: name }
   }
+
+  let db: DB
+  try {
+    db = openDatabase(dbFile)
+  } catch (e) {
+    if (upgrade) {
+      // Roll back to the untouched copy.
+      fs.rmSync(`${dbFile}-journal`, { force: true })
+      fs.copyFileSync(path.join(dataDir, BACKUP_DIR, upgrade.backup), dbFile)
+    }
+    return { ok: false, reason: `Your data could not be updated for this version of Tally, so it was left as it was. (${e instanceof Error ? e.message : String(e)})` }
+  }
+  recordAppVersion(db, appVersion)
+  fs.mkdirSync(path.join(dataDir, BACKUP_DIR), { recursive: true })
+  fs.mkdirSync(path.join(dataDir, QUIZ_DIR), { recursive: true })
+  pruneBackups(dataDir)
+  return { ok: true, db, upgrade }
 }
 
 // ---------------------------------------------------------------------------

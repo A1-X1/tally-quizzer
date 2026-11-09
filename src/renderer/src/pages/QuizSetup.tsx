@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import type { AttemptSettings } from '../../../shared/types'
+import type { AttemptSettings, QuizTiming } from '../../../shared/types'
+import { Bars, HBars } from '../components/Charts'
+import { RichText } from '../components/RichText'
 import { api, errorCode, errorMessage } from '../api'
 import { AttemptsTable } from '../components/AttemptsTable'
 import { Icon } from '../components/Icon'
 import { Dialog, Empty, ErrorNote, Field, Loading, Score, Segmented, Swatch, Toggle, useLoad, useToast } from '../components/ui'
-import { fmtDate, fmtMarks } from '../lib/format'
+import { fmtDate, fmtDuration, fmtMarks, plural } from '../lib/format'
 import { go, href } from '../lib/router'
 
 const DEFAULTS: AttemptSettings = {
@@ -252,6 +254,8 @@ export function QuizSetup({ id }: { id: number }) {
         </section>
       </div>
 
+      <QuizTimingSection timing={data.timing} />
+
       <section className="section" aria-labelledby="past-h">
         <div className="section-head">
           <h2 id="past-h">Past attempts</h2>
@@ -328,5 +332,122 @@ export function QuizSetup({ id }: { id: number }) {
         </p>
       </Dialog>
     </div>
+  )
+}
+
+function QuizTimingSection({ timing }: { timing: QuizTiming }) {
+  const [view, setView] = useState<'questions' | 'topics' | 'attempts'>('questions')
+  if (timing.attempts.length === 0) return null
+  const qs = timing.questions.filter((q) => q.perQuestion !== null)
+  const maxSecs = Math.max(1, ...qs.map((q) => q.perQuestion ?? 0))
+  return (
+    <section className="section" aria-labelledby="qt-h">
+      <div className="section-head">
+        <h2 id="qt-h">Time and accuracy</h2>
+        <div className="section-tools">
+          <Segmented
+            label="Breakdown"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'questions', label: 'By question' },
+              { value: 'topics', label: 'By topic' },
+              { value: 'attempts', label: 'By attempt' }
+            ]}
+          />
+        </div>
+      </div>
+      {view === 'questions' ? (
+        <div className="table-wrap anim-enter" key="q">
+          <table className="table table-dense qtime-table">
+            <caption className="sr-only">Average time and accuracy for each question</caption>
+            <thead>
+              <tr>
+                <th scope="col" className="num-col">#</th>
+                <th scope="col">Question</th>
+                <th scope="col">Topic</th>
+                <th scope="col" className="bar-col">Average time</th>
+                <th scope="col" className="num-col">Right</th>
+              </tr>
+            </thead>
+            <tbody>
+              {timing.questions.map((q, i) => (
+                <tr key={q.position}>
+                  <td className="num-col num faint">{q.position}</td>
+                  <td className="qtime-prompt">
+                    <RichText text={q.prompt.length > 120 ? `${q.prompt.slice(0, 117)}…` : q.prompt} />
+                  </td>
+                  <td className="muted nowrap">{q.topic ?? '—'}</td>
+                  <td className="bar-col">
+                    {q.perQuestion === null ? (
+                      <span className="faint small">Not yet seen</span>
+                    ) : (
+                      <div className="qtime-bar">
+                        <div className="hbar-track">
+                          <span
+                            className="hbar-fill tone-accent anim-grow-x"
+                            style={{ width: `${Math.max(2, (q.perQuestion / maxSecs) * 100)}%`, '--i': i } as React.CSSProperties}
+                          />
+                        </div>
+                        <span className="num">{fmtDuration(q.perQuestion)}</span>
+                      </div>
+                    )}
+                  </td>
+                  <td className="num-col">
+                    <Score value={q.accuracy} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : view === 'topics' ? (
+        timing.topics.length === 0 ? (
+          <p className="muted">This quiz has no topic column.</p>
+        ) : (
+          <HBars
+            key="t"
+            label="Seconds per question in each topic"
+            rows={timing.topics.map((t) => ({
+              key: t.topic,
+              label: t.topic,
+              sub: `${Math.round(t.accuracy)}% right · ${fmtDuration(t.seconds)} in total`,
+              value: t.perQuestion,
+              display: `${t.perQuestion}s each`,
+              tone: t.accuracy >= 70 ? 'good' : t.accuracy < 50 ? 'bad' : 'ink'
+            }))}
+          />
+        )
+      ) : (
+        <>
+          <Bars
+            key="a"
+            height={220}
+            label="Seconds per question in each attempt"
+            valueFormat={(n) => `${Math.round(n)}s`}
+            bars={timing.attempts.map((a) => ({
+              key: String(a.attemptNumber),
+              value: a.perQuestion,
+              label: `Attempt ${a.attemptNumber}: ${a.perQuestion} seconds per question, ${a.percentage}%`,
+              tick: `#${a.attemptNumber}`,
+              tone: 'accent',
+              tip: (
+                <>
+                  <span className="chart-tip-score num">{a.perQuestion}s a question</span>
+                  <span className="chart-tip-title">Attempt {a.attemptNumber} · {Math.round(a.percentage)}%</span>
+                  <span className="chart-tip-meta">
+                    {fmtDuration(a.durationSeconds)} in total · {fmtDate(a.submittedAt)}
+                  </span>
+                </>
+              )
+            }))}
+          />
+          <p className="viz-note">
+            Seconds per question across {plural(timing.attempts.length, 'attempt')}. Getting faster while the score holds
+            is a sign it’s sticking.
+          </p>
+        </>
+      )}
+    </section>
   )
 }

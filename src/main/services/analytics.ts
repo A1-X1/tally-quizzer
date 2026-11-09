@@ -3,6 +3,9 @@ import { percentage } from '../marking'
 import type {
   AttemptListRow,
   Dashboard,
+  DashboardPatterns,
+  QuestionType,
+  QuizTiming,
   DateRange,
   HistoryFilter,
   MissedQuestion,
@@ -165,7 +168,8 @@ export function dashboard(db: DB, moduleId: number | null, range: DateRange, now
     recent,
     totals: { attempts: totals.attempts, questionsAnswered: totals.answered, secondsStudied: Math.round(seconds) },
     hasAnyQuiz,
-    hasAnyModule
+    hasAnyModule,
+    patterns: patterns(db, moduleId, now)
   }
 }
 
@@ -205,7 +209,8 @@ export function moduleDetail(db: DB, id: number): ModuleDetail {
     attempts,
     weakestQuizzes,
     topics: module.archivedAt ? [] : topicStats(db, id).slice(0, 8),
-    missed: module.archivedAt ? [] : missedQuestions(db, id, 8)
+    missed: module.archivedAt ? [] : missedQuestions(db, id, 8),
+    topicTime: module.archivedAt ? [] : topicTime(db, id).slice(0, 12)
   }
 }
 
@@ -241,4 +246,187 @@ export function quizOptions(db: DB): { id: number; title: string; moduleId: numb
   return db
     .prepare('SELECT id, title, module_id AS moduleId FROM quizzes ORDER BY title COLLATE NOCASE')
     .all() as { id: number; title: string; moduleId: number }[]
+}
+
+// ---------------------------------------------------------------------------
+// Time and pattern metrics
+
+const r1 = (n: number): number => Math.round(n * 10) / 10
+
+function localDate(d: Date): string {
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/** Seconds and accuracy per topic over official attempts. */
+export function topicTime(db: DB, moduleId: number | null, quizId: number | null = null) {
+  const rows = db
+    .prepare(
+      `SELECT qu.topic AS topic, m.name AS moduleName, COUNT(*) AS answered,
+              SUM(r.time_spent_seconds) AS seconds,
+              SUM(COALESCE(r.marks_awarded, 0)) AS awarded, SUM(qu.marks) AS available
+       FROM responses r
+       JOIN attempts a ON a.id = r.attempt_id
+       JOIN questions qu ON qu.id = r.question_id
+       JOIN quizzes q ON q.id = a.quiz_id
+       JOIN modules m ON m.id = q.module_id
+       WHERE ${OFFICIAL} AND ${VISIBLE} AND qu.topic IS NOT NULL
+         AND (@moduleId IS NULL OR m.id = @moduleId)
+         AND (@quizId IS NULL OR q.id = @quizId)
+       GROUP BY m.id, qu.topic
+       ORDER BY seconds DESC`
+    )
+    .all({ moduleId, quizId }) as { topic: string; moduleName: string; answered: number; seconds: number; awarded: number; available: number }[]
+  return rows.map((r) => ({
+    topic: r.topic,
+    moduleName: r.moduleName,
+    answered: r.answered,
+    seconds: Math.round(r.seconds),
+    perQuestion: r1(r.seconds / r.answered),
+    accuracy: percentage(r.awarded, r.available)
+  }))
+}
+
+export function patterns(db: DB, moduleId: number | null, now: Date = new Date()): DashboardPatterns {
+  // Activity: every attempt counts towards time spent, practice included.
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 83)
+  const rows = db
+    .prepare(
+      `SELECT a.started_at, a.duration_seconds, a.status FROM attempts a
+       JOIN quizzes q ON q.id = a.quiz_id JOIN modules m ON m.id = q.module_id
+       WHERE ${VISIBLE} AND a.started_at >= ? AND (@moduleId IS NULL OR m.id = @moduleId)`
+    )
+    .all(start.toISOString(), { moduleId }) as { started_at: string; duration_seconds: number; status: string }[]
+  const days = new Map<string, { seconds: number; attempts: number }>()
+  for (let i = 0; i < 84; i++) {
+    days.set(localDate(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)), { seconds: 0, attempts: 0 })
+  }
+  for (const r of rows) {
+    const d = days.get(localDate(new Date(r.started_at)))
+    if (!d) continue
+    d.seconds += r.duration_seconds
+    if (r.status === 'submitted') d.attempts += 1
+  }
+  const activity = [...days.entries()].map(([date, v]) => ({ date, seconds: Math.round(v.seconds), attempts: v.attempts }))
+
+  const timeByModule = (
+    db
+      .prepare(
+        `SELECT m.id AS moduleId, m.name, m.colour, COALESCE(SUM(a.duration_seconds), 0) AS seconds,
+                SUM(a.status = 'submitted' AND a.is_practice = 0) AS attempts
+         FROM modules m JOIN quizzes q ON q.module_id = m.id JOIN attempts a ON a.quiz_id = q.id
+         WHERE ${VISIBLE} GROUP BY m.id HAVING seconds > 0 ORDER BY seconds DESC`
+      )
+      .all() as { moduleId: number; name: string; colour: string; seconds: number; attempts: number }[]
+  ).map((r) => ({ ...r, colour: r.colour as ModuleColour, seconds: Math.round(r.seconds), attempts: r.attempts ?? 0 }))
+
+  const scores = db
+    .prepare(
+      `SELECT a.percentage, a.submitted_at, a.duration_seconds FROM attempts a
+       JOIN quizzes q ON q.id = a.quiz_id JOIN modules m ON m.id = q.module_id
+       WHERE ${OFFICIAL} AND ${VISIBLE} AND (@moduleId IS NULL OR m.id = @moduleId)`
+    )
+    .all({ moduleId }) as { percentage: number; submitted_at: string; duration_seconds: number }[]
+  const distribution = new Array<number>(10).fill(0)
+  for (const s of scores) distribution[Math.min(9, Math.floor(s.percentage / 10))] += 1
+
+  const types = (
+    db
+      .prepare(
+        `SELECT qu.type AS type, COUNT(*) AS answered, SUM(r.time_spent_seconds) AS seconds,
+                SUM(COALESCE(r.marks_awarded, 0)) AS awarded, SUM(qu.marks) AS available
+         FROM responses r JOIN attempts a ON a.id = r.attempt_id JOIN questions qu ON qu.id = r.question_id
+         JOIN quizzes q ON q.id = a.quiz_id JOIN modules m ON m.id = q.module_id
+         WHERE ${OFFICIAL} AND ${VISIBLE} AND (@moduleId IS NULL OR m.id = @moduleId)
+         GROUP BY qu.type ORDER BY qu.type DESC`
+      )
+      .all({ moduleId }) as { type: QuestionType; answered: number; seconds: number; awarded: number; available: number }[]
+  ).map((t) => ({ type: t.type, answered: t.answered, accuracy: percentage(t.awarded, t.available), perQuestion: r1(t.seconds / t.answered) }))
+
+  // Weeks start on Monday, local time.
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7))
+  const weekly = Array.from({ length: 12 }, (_, i) => {
+    const s = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 7 * (11 - i))
+    const e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 7)
+    const inWeek = scores.filter((x) => {
+      const t = new Date(x.submitted_at).getTime()
+      return t >= s.getTime() && t < e.getTime()
+    })
+    const secs = rows
+      .filter((x) => {
+        const t = new Date(x.started_at).getTime()
+        return t >= s.getTime() && t < e.getTime()
+      })
+      .reduce((a, b) => a + b.duration_seconds, 0)
+    return {
+      weekStart: localDate(s),
+      attempts: inWeek.length,
+      seconds: Math.round(secs),
+      average: inWeek.length ? r1(inWeek.reduce((a, b) => a + b.percentage, 0) / inWeek.length) : null
+    }
+  })
+
+  return {
+    activity,
+    timeByModule,
+    distribution,
+    topicTime: topicTime(db, moduleId).slice(0, 10),
+    types,
+    weekly
+  }
+}
+
+/** Time and accuracy per question and per topic for one quiz, across its official attempts. */
+export function quizTiming(db: DB, quizId: number): QuizTiming {
+  const latest = db
+    .prepare('SELECT id FROM quiz_versions WHERE quiz_id = ? ORDER BY version_no DESC LIMIT 1')
+    .pluck()
+    .get(quizId) as number | undefined
+  const perPrompt = new Map(
+    (
+      db
+        .prepare(
+          `SELECT qu.prompt, COUNT(*) AS seen, AVG(r.time_spent_seconds) AS secs,
+                  SUM(COALESCE(r.marks_awarded, 0)) AS awarded, SUM(qu.marks) AS available
+           FROM responses r JOIN attempts a ON a.id = r.attempt_id JOIN questions qu ON qu.id = r.question_id
+           WHERE a.quiz_id = ? AND ${OFFICIAL} GROUP BY qu.prompt`
+        )
+        .all(quizId) as { prompt: string; seen: number; secs: number; awarded: number; available: number }[]
+    ).map((r) => [r.prompt, r])
+  )
+  const questions = latest
+    ? (
+        db
+          .prepare('SELECT position, prompt, topic, type FROM questions WHERE quiz_version_id = ? ORDER BY position')
+          .all(latest) as { position: number; prompt: string; topic: string | null; type: QuestionType }[]
+      ).map((q) => {
+        const s = perPrompt.get(q.prompt)
+        return {
+          ...q,
+          seen: s?.seen ?? 0,
+          perQuestion: s ? r1(s.secs) : null,
+          accuracy: s ? percentage(s.awarded, s.available) : null
+        }
+      })
+    : []
+  const attempts = (
+    db
+      .prepare(
+        `SELECT a.attempt_number, a.submitted_at, a.duration_seconds, a.percentage,
+                (SELECT COUNT(*) FROM responses r WHERE r.attempt_id = a.id) AS n
+         FROM attempts a WHERE a.quiz_id = ? AND ${OFFICIAL} ORDER BY a.attempt_number`
+      )
+      .all(quizId) as { attempt_number: number; submitted_at: string; duration_seconds: number; percentage: number; n: number }[]
+  ).map((a) => ({
+    attemptNumber: a.attempt_number,
+    submittedAt: a.submitted_at,
+    durationSeconds: Math.round(a.duration_seconds),
+    percentage: a.percentage,
+    perQuestion: a.n ? r1(a.duration_seconds / a.n) : 0
+  }))
+  return {
+    questions,
+    topics: topicTime(db, null, quizId).map(({ topic, perQuestion, seconds, accuracy, answered }) => ({ topic, perQuestion, seconds, accuracy, answered })),
+    attempts
+  }
 }

@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import type { ReviewQuestion } from '../../../shared/types'
+import type { AttemptResult, ReviewQuestion } from '../../../shared/types'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { TypeBadge } from '../components/QuestionView'
 import { RichText } from '../components/RichText'
 import { ErrorNote, Loading, Score, Segmented, Swatch, useLoad, useToast } from '../components/ui'
-import { band, fmtDateTime, fmtDuration, fmtMarks, signed } from '../lib/format'
+import { Bars, Donut, HBars } from '../components/Charts'
+import { band, fmtDateTime, fmtDuration, fmtMarks, plural, signed } from '../lib/format'
 import { go, href } from '../lib/router'
 
 type Filter = 'all' | 'wrong' | 'flagged'
@@ -158,6 +159,8 @@ export function ResultsPage({ id }: { id: number }) {
         </dl>
       </section>
 
+      <TimeBreakdown data={data} />
+
       {data.topics.length > 0 ? (
         <section className="section" aria-labelledby="topics-h">
           <div className="section-head">
@@ -243,6 +246,8 @@ function ReviewItem({ q }: { q: ReviewQuestion }) {
         </span>
         <span className="faint num small" title="Time spent">
           {fmtDuration(q.timeSpent)}
+          {q.visits > 1 ? ` · ${q.visits} visits` : ''}
+          {q.answerChanges > 0 ? ` · changed ${q.answerChanges}×` : ''}
         </span>
         {q.flagged ? (
           <span className="faint small">
@@ -280,5 +285,126 @@ function ReviewItem({ q }: { q: ReviewQuestion }) {
         </div>
       ) : null}
     </li>
+  )
+}
+
+const TOPIC_COLOURS = ['cobalt', 'orange', 'teal', 'ochre', 'rose', 'violet']
+
+function TimeBreakdown({ data }: { data: AttemptResult }) {
+  const [view, setView] = useState<'questions' | 'topics'>('questions')
+  const t = data.timing
+  if (t.questionSeconds === 0) return null
+  const slowest = [...data.questions].sort((a, b) => b.timeSpent - a.timeSpent)[0]
+  const multipleTopics = t.topics.length > 1
+  return (
+    <section className="section" aria-labelledby="time-h">
+      <div className="section-head">
+        <h2 id="time-h">Time</h2>
+        <div className="section-tools">
+          <Segmented
+            label="Time view"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'questions', label: 'Per question' },
+              { value: 'topics', label: 'Per topic' }
+            ]}
+          />
+        </div>
+      </div>
+      <dl className="stat-strip time-strip">
+        <div>
+          <dt>Per question</dt>
+          <dd className="num">{fmtDuration(t.perQuestion)}</dd>
+        </div>
+        <div>
+          <dt>Median</dt>
+          <dd className="num">{fmtDuration(t.median)}</dd>
+        </div>
+        <div>
+          <dt>On right answers</dt>
+          <dd className="num">{t.rightPerQuestion === null ? '—' : fmtDuration(t.rightPerQuestion)}</dd>
+        </div>
+        <div>
+          <dt>On wrong answers</dt>
+          <dd className="num">{t.wrongPerQuestion === null ? '—' : fmtDuration(t.wrongPerQuestion)}</dd>
+        </div>
+        <div>
+          <dt>Longest</dt>
+          <dd className="num">
+            Q{slowest.displayPosition} · {fmtDuration(slowest.timeSpent)}
+          </dd>
+        </div>
+        <div>
+          <dt>Answers changed</dt>
+          <dd className="num">{t.answerChanges}</dd>
+        </div>
+      </dl>
+      {view === 'questions' ? (
+        <>
+          <Bars
+            key="q"
+            height={240}
+            label="Seconds spent on each question; green right, red wrong"
+            valueFormat={(n) => `${Math.round(n)}`}
+            reference={{ value: t.perQuestion, label: `average ${Math.round(t.perQuestion)}s` }}
+            bars={data.questions.map((q) => ({
+              key: String(q.id),
+              value: q.timeSpent,
+              label: `Question ${q.displayPosition}: ${q.timeSpent} seconds, ${q.isCorrect ? 'right' : 'wrong'}`,
+              tick: data.questions.length <= 30 || q.displayPosition % 5 === 0 ? String(q.displayPosition) : '',
+              tone: q.isCorrect ? 'good' : 'bad',
+              tip: (
+                <>
+                  <span className="chart-tip-score num">{fmtDuration(q.timeSpent)}</span>
+                  <span className="chart-tip-title">
+                    Question {q.displayPosition} · {q.isCorrect ? 'right' : q.answered ? 'wrong' : 'not answered'}
+                  </span>
+                  <span className="chart-tip-meta">
+                    {q.topic ?? 'No topic'}
+                    {q.firstAnswerSeconds !== null ? ` · first answer after ${fmtDuration(q.firstAnswerSeconds)}` : ''}
+                  </span>
+                </>
+              )
+            }))}
+          />
+          <p className="viz-note">Active seconds on each question, in the order you saw them. The dashed line is your average.</p>
+        </>
+      ) : (
+        <div className="viz-grid">
+          <div className="viz-cell">
+            {multipleTopics ? (
+              <Donut
+                key="donut"
+                label="Share of time per topic"
+                centre={{ value: fmtDuration(t.questionSeconds), caption: 'on questions' }}
+                slices={t.topics.map((tp, i) => ({
+                  key: tp.topic,
+                  label: tp.topic,
+                  value: tp.seconds,
+                  colour: `var(--mod-${TOPIC_COLOURS[i % TOPIC_COLOURS.length]})`,
+                  display: fmtDuration(tp.seconds)
+                }))}
+              />
+            ) : (
+              <p className="muted">All of this quiz’s questions share one topic.</p>
+            )}
+          </div>
+          <div className="viz-cell">
+            <HBars
+              label="Seconds per question in each topic"
+              rows={t.topics.map((tp) => ({
+                key: tp.topic,
+                label: tp.topic,
+                sub: `${plural(tp.questions, 'question')} · ${Math.round(tp.percentage)}% right`,
+                value: tp.perQuestion,
+                display: `${tp.perQuestion}s each`,
+                tone: tp.percentage >= 70 ? 'good' : tp.percentage < 50 ? 'bad' : 'ink'
+              }))}
+            />
+          </div>
+        </div>
+      )}
+    </section>
   )
 }

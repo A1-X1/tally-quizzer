@@ -131,6 +131,29 @@ export function checkDatabaseFile(file: string): DatabaseCheck {
   }
 }
 
+/** The schema version and the Tally version that last opened a database, read without changing it. */
+export function readVersions(file: string): { schemaVersion: number; appVersion: string | null } {
+  const db = new Database(file, { readonly: true, fileMustExist: true })
+  try {
+    const schemaVersion = db.pragma('user_version', { simple: true }) as number
+    let appVersion: string | null = null
+    try {
+      appVersion = (db.prepare(`SELECT value FROM settings WHERE key = 'app_version'`).pluck().get() as string | undefined) ?? null
+    } catch {
+      appVersion = null
+    }
+    return { schemaVersion, appVersion }
+  } finally {
+    db.close()
+  }
+}
+
+export function recordAppVersion(db: DB, version: string): void {
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES ('app_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run(version)
+}
+
 export function integrityOk(db: DB): boolean {
   return (db.pragma('integrity_check', { simple: true }) as string) === 'ok'
 }

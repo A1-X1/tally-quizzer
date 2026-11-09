@@ -99,7 +99,7 @@ describe('modules', () => {
     const m = createModule(db, { name: '  Discrete   Maths ', code: ' MATH1 ', colour: 'teal', description: '' })
     expect(m).toMatchObject({ name: 'Discrete Maths', code: 'MATH1', description: null, colour: 'teal' })
     expect(() => createModule(db, { name: 'discrete maths', code: null, colour: 'cobalt', description: null })).toThrow(/already have/)
-    updateModule(db, m.id, { name: 'Discrete Mathematics', code: null, colour: 'plum', description: 'Logic' })
+    updateModule(db, m.id, { name: 'Discrete Mathematics', code: null, colour: 'violet', description: 'Logic' })
     archiveModule(db, m.id, true)
     expect(listModules(db, false)).toHaveLength(0)
     expect(listModules(db, true)[0].archivedAt).not.toBeNull()

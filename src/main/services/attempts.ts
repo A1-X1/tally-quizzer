@@ -12,6 +12,8 @@ import {
   type QuestionFeedback,
   type QuestionType,
   type ReviewQuestion,
+  type AttemptTiming,
+  type TopicTiming,
   type SessionQuestion,
   type StartAttemptRequest,
   type TickRequest
@@ -47,6 +49,9 @@ interface RawResponse {
   flagged: number
   revealed_at: string | null
   answered_at: string | null
+  visit_count: number
+  answer_changes: number
+  first_answer_seconds: number | null
   prompt: string
   type: QuestionType
   marks: number
@@ -286,11 +291,15 @@ export function saveAnswer(db: DB, req: AnswerRequest): void {
   const selected = [...new Set(req.selected)]
   if (!selected.every((id) => valid.has(id))) throw new UserError('That option does not belong to this question.')
   if (r.type === 'single' && selected.length > 1) throw new UserError('Choose only one option for this question.')
-  db.prepare('UPDATE responses SET selected_option_ids_json = ?, answered_at = ? WHERE id = ?').run(
-    JSON.stringify(selected),
-    selected.length ? nowIso() : null,
-    r.id
-  )
+  const previous = parseIds(r.selected_option_ids_json)
+  const changed =
+    previous.length > 0 && (previous.length !== selected.length || previous.some((id) => !selected.includes(id)))
+  db.prepare(
+    `UPDATE responses SET selected_option_ids_json = ?, answered_at = ?,
+       answer_changes = answer_changes + ?,
+       first_answer_seconds = COALESCE(first_answer_seconds, CASE WHEN ? > 0 THEN time_spent_seconds END)
+     WHERE id = ?`
+  ).run(JSON.stringify(selected), selected.length ? nowIso() : null, changed ? 1 : 0, selected.length, r.id)
 }
 
 export function revealAnswer(db: DB, attemptId: number, questionId: number): QuestionFeedback {
@@ -330,8 +339,9 @@ export function tick(db: DB, req: TickRequest): void {
     )
     if (req.questionId !== null) {
       db.prepare(
-        'UPDATE responses SET time_spent_seconds = time_spent_seconds + ? WHERE attempt_id = ? AND question_id = ?'
-      ).run(seconds, a.id, req.questionId)
+        `UPDATE responses SET time_spent_seconds = time_spent_seconds + ?, visit_count = visit_count + ?
+         WHERE attempt_id = ? AND question_id = ?`
+      ).run(seconds, req.visit ? 1 : 0, a.id, req.questionId)
     }
   })
   tx()
@@ -401,7 +411,10 @@ export function getResult(db: DB, id: number): AttemptResult {
       isCorrect: r.is_correct === 1,
       answered: selected.length > 0,
       timeSpent: Math.round(r.time_spent_seconds),
-      flagged: r.flagged === 1
+      flagged: r.flagged === 1,
+      visits: r.visit_count,
+      answerChanges: r.answer_changes,
+      firstAnswerSeconds: r.first_answer_seconds === null ? null : Math.round(r.first_answer_seconds)
     }
   })
 
@@ -448,6 +461,49 @@ export function getResult(db: DB, id: number): AttemptResult {
     best,
     topics,
     questions,
-    wrongCount: questions.filter((q) => !q.isCorrect).length
+    wrongCount: questions.filter((q) => !q.isCorrect).length,
+    timing: timingFor(questions)
+  }
+}
+
+const avg = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
+const r1 = (n: number): number => Math.round(n * 10) / 10
+
+/** Where the time went in one attempt: overall, right versus wrong, and by topic. */
+export function timingFor(questions: ReviewQuestion[]): AttemptTiming {
+  const secs = questions.map((q) => q.timeSpent)
+  const total = secs.reduce((a, b) => a + b, 0)
+  const sorted = [...secs].sort((a, b) => a - b)
+  const median = sorted.length ? (sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2) : 0
+  const right = avg(questions.filter((q) => q.isCorrect).map((q) => q.timeSpent))
+  const wrong = avg(questions.filter((q) => !q.isCorrect).map((q) => q.timeSpent))
+  const map = new Map<string, { seconds: number; questions: number; awarded: number; available: number }>()
+  for (const q of questions) {
+    const key = q.topic ?? 'No topic'
+    const t = map.get(key) ?? { seconds: 0, questions: 0, awarded: 0, available: 0 }
+    t.seconds += q.timeSpent
+    t.questions += 1
+    t.awarded += q.marksAwarded
+    t.available += q.marks
+    map.set(key, t)
+  }
+  const topics: TopicTiming[] = [...map.entries()]
+    .map(([topic, t]) => ({
+      topic,
+      seconds: t.seconds,
+      share: total > 0 ? r1((t.seconds / total) * 100) : 0,
+      questions: t.questions,
+      perQuestion: r1(t.seconds / t.questions),
+      percentage: percentage(t.awarded, t.available)
+    }))
+    .sort((a, b) => b.seconds - a.seconds)
+  return {
+    questionSeconds: total,
+    perQuestion: questions.length ? r1(total / questions.length) : 0,
+    median: r1(median),
+    rightPerQuestion: right === null ? null : r1(right),
+    wrongPerQuestion: wrong === null ? null : r1(wrong),
+    answerChanges: questions.reduce((s, q) => s + q.answerChanges, 0),
+    topics
   }
 }

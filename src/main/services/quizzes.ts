@@ -12,6 +12,7 @@ import type {
   QuizVersionInfo
 } from '../../shared/types'
 import { getModule, getQuizRow } from './modules'
+import { quizTiming } from './analytics'
 import { ATTEMPT_SELECT, mapAttempt, type RawAttemptRow, UserError } from './rows'
 
 export function sha256(text: string): string {
@@ -208,7 +209,8 @@ export function quizDetail(db: DB, id: number): QuizDetail {
     versions,
     best: pick(bestRow),
     last: pick(lastRow),
-    attempts
+    attempts,
+    timing: quizTiming(db, id)
   }
 }
 

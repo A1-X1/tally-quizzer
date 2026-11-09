@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { RestoreCheck } from '../../../shared/types'
+import type { RestoreCheck, UpdateInfo } from '../../../shared/types'
+import { Toggle } from '../components/ui'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { Dialog, ErrorNote, Loading, Segmented, useLoad, useToast } from '../components/ui'
@@ -11,7 +12,8 @@ const REASONS: Record<string, string> = {
   manual: 'Manual',
   'pre-delete': 'Before deleting',
   'pre-restore': 'Before restoring',
-  'pre-move': 'Before moving'
+  'pre-move': 'Before moving',
+  'pre-upgrade': 'Before updating'
 }
 
 export function SettingsPage({ onDataChanged }: { onDataChanged: () => void }) {
@@ -205,22 +207,10 @@ export function SettingsPage({ onDataChanged }: { onDataChanged: () => void }) {
       <section className="settings-section" aria-labelledby="s-about">
         <h2 id="s-about" className="settings-h">About</h2>
         <div className="settings-body">
-          <div className="setting">
-            <div>
-              <p className="setting-name">
-                Tally <span className="num">{version ?? ''}</span>
-              </p>
-              <p className="muted small">
-                Updates are not automatic. Check the releases page for new versions; installing one keeps your data.
-              </p>
-            </div>
-            <button type="button" className="btn btn-secondary" onClick={() => void api('app:openReleases')}>
-              <Icon name="external" size={16} /> Releases on GitHub
-            </button>
-          </div>
+          <UpdatePanel version={version ?? ''} />
           <p className="muted small">
-            Tally makes no network connections. Fonts: Bricolage Grotesque, Instrument Sans and JetBrains Mono (SIL Open
-            Font License). Maths by KaTeX (MIT).
+            Tally connects to nothing unless you check for updates. Fonts: Bricolage Grotesque, Instrument Sans and
+            Spline Sans Mono (SIL Open Font License). Maths by KaTeX (MIT).
           </p>
         </div>
       </section>
@@ -307,5 +297,90 @@ export function SettingsPage({ onDataChanged }: { onDataChanged: () => void }) {
         ) : null}
       </Dialog>
     </div>
+  )
+}
+
+export function UpdatePanel({ version }: { version: string }) {
+  const [info, setInfo] = useState<UpdateInfo | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const { data: auto, reload } = useLoad(() => api('updates:getAutoCheck'), [])
+  const toast = useToast()
+
+  const check = async (): Promise<void> => {
+    setChecking(true)
+    setError(null)
+    try {
+      setInfo(await api('updates:check'))
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="setting">
+        <div>
+          <p className="setting-name">
+            Tally <span className="num">{version}</span>
+          </p>
+          <p className="muted small">Checking contacts GitHub only when you ask. Nothing is sent about you or your data.</p>
+        </div>
+        <button type="button" className="btn btn-secondary" onClick={check} disabled={checking} data-testid="check-updates">
+          <Icon name="retry" size={16} /> {checking ? 'Checking…' : 'Check for updates'}
+        </button>
+      </div>
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+      {info ? (
+        info.newer && info.latest ? (
+          <div className="update-card" role="status">
+            <p className="update-title">
+              Tally <span className="num">{info.latest}</span> is available
+              {info.publishedAt ? <span className="faint small"> · released {fmtDate(info.publishedAt)}</span> : null}
+            </p>
+            {info.notes ? <pre className="update-notes">{info.notes}</pre> : null}
+            <ol className="update-steps">
+              <li>Download the new version and close Tally.</li>
+              <li>Install it over this one: run the installer on Windows, replace the app in Applications on a Mac, or swap the AppImage on Linux.</li>
+              <li>Open Tally. It backs up your data, updates it for the new version if needed, and carries on where you left off.</li>
+            </ol>
+            <div className="row-actions">
+              {info.download ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void api('updates:open', { url: info.download!.url }).catch((e: unknown) => toast(errorMessage(e), 'bad'))}
+                >
+                  <Icon name="download" size={16} /> Download {info.download.name}{' '}
+                  <span className="faint-on">({fmtBytes(info.download.bytes)})</span>
+                </button>
+              ) : null}
+              {info.pageUrl ? (
+                <button type="button" className="btn btn-ghost" onClick={() => void api('updates:open', { url: info.pageUrl! })}>
+                  <Icon name="external" size={16} /> Release page
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <p className="update-ok" role="status">
+            <Icon name="check" size={16} /> {info.latest ? `You have the latest version (${info.current}).` : 'No releases have been published yet.'}
+          </p>
+        )
+      ) : null}
+      <div className="setting">
+        <Toggle
+          checked={auto === true}
+          onChange={async (v) => {
+            await api('updates:setAutoCheck', { enabled: v })
+            reload()
+          }}
+          label="Check for updates when Tally starts"
+          description="Off by default. When on, Tally asks GitHub for the latest version once at startup."
+        />
+      </div>
+    </>
   )
 }

@@ -191,14 +191,15 @@ export function LineChart({
             .join(' ')
           return (
             <g key={s.key} style={{ color: s.colour }}>
-              <path d={d} className="chart-line" />
-              {s.points.map((p) => (
+              <path d={d} className="chart-line anim-line" pathLength={1} />
+              {s.points.map((p, i) => (
                 <circle
                   key={p.attemptId}
                   cx={x(new Date(p.submittedAt).getTime())}
                   cy={y(p.percentage)}
                   r={activePoint?.attemptId === p.attemptId ? 6 : 3.5}
-                  className="chart-dot"
+                  className="chart-dot anim-pop"
+                  style={{ '--i': i * 6 } as React.CSSProperties}
                 />
               ))}
             </g>

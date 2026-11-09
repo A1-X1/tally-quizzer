@@ -13,7 +13,7 @@ original brief.
 | Database | SQLite via better-sqlite3 13, main process only |
 | Maths | KaTeX (bundled, `trust: false`) |
 | Charts | Hand-written SVG (no charting dependency) |
-| Fonts | Bricolage Grotesque (display), Instrument Sans (text), JetBrains Mono (data), bundled via Fontsource |
+| Fonts | Bricolage Grotesque (display), Instrument Sans (text), Spline Sans Mono (data), bundled via Fontsource |
 | IPC validation | zod |
 | Packaging | electron-builder 26 |
 | Tests | Vitest (unit/integration, run under Electron's Node so the native ABI matches), Playwright `_electron` against the packaged app |
@@ -88,6 +88,23 @@ original brief.
 - **No licence file.** The repository owner has not chosen a licence for Tally's own code, so
   `package.json` says `UNLICENSED` and no `LICENSE` is added. Third-party licences are in
   `THIRD_PARTY_NOTICES.md`.
+
+- **Updating (added after the first build).** No background or self-installing updater: macOS
+  cannot install unsigned updates, and Tally must make no automatic network requests. Instead,
+  *Check for updates* in Settings queries the GitHub Releases API only when clicked (an opt-in
+  setting repeats it at startup) and opens the right download. Opening data with a new version
+  runs a pre-upgrade check: a verified copy is saved to `backups/` before any migration, and is
+  restored if the migration fails. The network filter admits only that one API URL, and only
+  while a check is running.
+- **Schema 2.** Adds per-response `visit_count`, `answer_changes` and `first_answer_seconds`, and
+  moves modules to a six-colour palette validated for colour-blind separation in both themes.
+- **Time metrics and dashboard formats.** Results, quiz and module pages break time down by
+  question, topic and attempt. The dashboard offers score trends as every attempt, weekly
+  averages or a spread; a twelve-week activity calendar; time by module as bars or shares; and
+  time against accuracy by topic as a chart or table. Charts animate in briefly and respect
+  `prefers-reduced-motion`.
+- **Monospace font.** JetBrains Mono replaced by Spline Sans Mono, which reads as part of the
+  type system rather than a code editor.
 
 ## Status
 

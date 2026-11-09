@@ -23,8 +23,9 @@ Everything stays on your computer in a single file you choose. There is no accou
 - Maths written in LaTeX between `$…$` and code in `backticks`.
 - Shuffling, time limits, feedback after each question or at the end, and strict or partial marking.
 - Every answer, mark and second recorded for every attempt. Close the app mid-quiz and pick up where you left off.
-- Results with per-topic breakdowns, a full review, retries and practice runs on the questions you got wrong.
-- A dashboard, module pages and a filterable, exportable history.
+- Results with per-topic breakdowns, time spent on every question and topic, a full review, retries and practice runs on the questions you got wrong.
+- Time and accuracy by question, topic and attempt for each quiz, so you can see where your time goes.
+- A dashboard with score trends (per attempt, weekly or as a spread), a twelve-week activity calendar, time by module, and time against accuracy by topic; module pages; and a filterable, exportable history.
 - Light and dark themes.
 
 ## Installing
@@ -120,9 +121,18 @@ When you upload a file, Tally checks all of it first. If anything is wrong, it l
 
 Files are limited to 2 MB and 500 questions. Everything in a CSV is treated as text: HTML is shown literally and never runs.
 
+## Updating
+
+Tally never updates itself in the background, and it makes no network requests on its own.
+
+- **Settings → About → Check for updates** asks GitHub for the latest release, only when you click it. If there is a newer version, Tally shows what changed and offers the right download for your computer. You can also turn on **Check for updates when Tally starts** (off by default).
+- To update, install the new version over the old one: run the new installer on Windows, drag the new Tally into Applications on a Mac and choose **Replace**, or replace the AppImage on Linux.
+- Your data folder is never touched by installing. The first time a new version opens your data, Tally runs a **pre-upgrade check**: it saves a verified copy of `userdata.sqlite` to `backups/` (named `…-pre-upgrade.sqlite`), then updates the database for the new version if needed. If that update fails, Tally puts the copy back and leaves your data exactly as it was.
+- A database written by a newer version of Tally is never opened by an older one; Tally asks you to update instead.
+
 ## Backups
 
-- Tally backs up `userdata.sqlite` into `backups/` every time it starts, and before deleting a module or quiz, restoring, or moving your data. The latest ten are kept. Every copy is checked with SQLite's `PRAGMA integrity_check`.
+- Tally backs up `userdata.sqlite` into `backups/` every time it starts, before opening it with a new version, and before deleting a module or quiz, restoring, or moving your data. The latest ten are kept. Every copy is checked with SQLite's `PRAGMA integrity_check`.
 - **Settings → Data → Export my data** saves a complete, consistent copy of your data wherever you choose. Keep one somewhere other than your data folder.
 - **Settings → Data → Restore from file** replaces your data with an exported or backed-up file. Tally checks the file first and backs up your current data before replacing anything.
 - **Settings → Data → Move data folder** copies your data to a new folder, verifies the copy, switches to it, and only then removes the old one.
@@ -188,7 +198,7 @@ npm run test:e2e
 
 - Electron, TypeScript and electron-vite; React with hand-written CSS; SQLite through better-sqlite3 in the main process only.
 - The window runs with `contextIsolation`, `sandbox` and no `nodeIntegration`. The renderer can only call a fixed list of typed functions, and the main process validates every request. A strict Content Security Policy applies, navigation and new windows are blocked, and every outbound network request is refused. Files are opened and saved only through the system's own dialogs.
-- Fonts (Bricolage Grotesque, Instrument Sans, JetBrains Mono) and KaTeX are bundled; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- Fonts (Bricolage Grotesque, Instrument Sans, Spline Sans Mono) and KaTeX are bundled; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - Releases are built by [GitHub Actions](.github/workflows/release.yml) on Windows, macOS (Apple silicon and Intel) and Linux runners, each natively. Every build is checked for the right native binary architecture, macOS builds pass `codesign --verify --deep --strict`, and the end-to-end tests run against each packaged app before anything is published.
 
 See [docs/PLAN.md](docs/PLAN.md) for the build plan and design decisions.

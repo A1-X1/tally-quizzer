@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { BootState } from '../../shared/types'
+import type { BootState, UpgradeNotice } from '../../shared/types'
 import { api } from './api'
 import { Navbar } from './components/Navbar'
-import { Loading, ToastProvider } from './components/ui'
+import { Loading, ToastProvider, useToast } from './components/ui'
 import { useRoute } from './lib/router'
 import { ThemeProvider } from './lib/theme'
 import { Dashboard } from './pages/Dashboard'
@@ -42,7 +42,7 @@ export function App() {
     <ToastProvider>
       {boot.kind === 'ready' ? (
         <ThemeProvider initial={boot.theme} persist>
-          <Shell onDataChanged={refresh} key={boot.dataDir} />
+          <Shell onDataChanged={refresh} key={boot.dataDir} upgrade={boot.upgrade} />
         </ThemeProvider>
       ) : (
         <ThemeProvider initial="system" persist={false}>
@@ -58,9 +58,27 @@ export function App() {
   )
 }
 
-function Shell({ onDataChanged }: { onDataChanged: () => void }) {
+function Shell({ onDataChanged, upgrade }: { onDataChanged: () => void; upgrade: UpgradeNotice | null }) {
   const route = useRoute()
   const focused = route.name === 'attempt'
+  const toast = useToast()
+  const [available, setAvailable] = useState<string | null>(null)
+
+  // After an update: say so, once. Then, only if the user opted in, check for a newer version.
+  useEffect(() => {
+    if (upgrade && upgrade.fromVersion && upgrade.fromVersion !== upgrade.toVersion) {
+      toast(`Updated to Tally ${upgrade.toVersion}. Your data was backed up first.`, 'good')
+    } else if (upgrade) {
+      toast('Your data was updated for this version of Tally. A backup was saved first.', 'good')
+    }
+    api('updates:getAutoCheck')
+      .then((on) => (on ? api('updates:check') : null))
+      .then((info) => {
+        if (info?.newer && info.latest) setAvailable(info.latest)
+      })
+      .catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Move focus to the page heading on navigation so keyboard and screen reader users land in context.
   useEffect(() => {
@@ -77,6 +95,15 @@ function Shell({ onDataChanged }: { onDataChanged: () => void }) {
   return (
     <div className={focused ? 'shell shell-focused' : 'shell'}>
       {focused ? null : <Navbar route={route} />}
+      {available && !focused && route.name !== 'settings' ? (
+        <div className="update-pill" role="status">
+          Tally {available} is available.{' '}
+          <a href="#/settings">See what’s new</a>
+          <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => setAvailable(null)}>
+            ×
+          </button>
+        </div>
+      ) : null}
       <main id="main" className="main">
         {route.name === 'dashboard' && <Dashboard />}
         {route.name === 'modules' && <ModulesPage />}

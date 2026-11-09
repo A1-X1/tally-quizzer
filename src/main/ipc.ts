@@ -16,12 +16,13 @@ import {
   requireDb,
   tryOpenConfigured
 } from './context'
-import { checkDatabaseFile, openDatabase } from './db/connection'
+import { checkDatabaseFile, openDatabase, recordAppVersion } from './db/connection'
 import {
   backupTo,
   copyDataFolder,
   createBackup,
   createDataFolder,
+  openDataFolder,
   dataInfo,
   DB_FILE,
   inspectLocation,
@@ -40,6 +41,7 @@ import { toCsv } from './csv/parse'
 import templateCsv from '../../samples/template.csv?raw'
 import exampleCsv from '../../samples/example_quiz.csv?raw'
 import { applyTitleBarTheme, isTrustedUrl } from './window'
+import { checkForUpdates, isOfferedDownload } from './updates'
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -190,7 +192,7 @@ export function registerIpc(): void {
     const now = inspectLocation(i.location)
     if (now.status === 'existing') throw new UserError('This folder already contains Tally data. Choose "Use this existing data" instead.')
     if (now.status !== 'new') throw new UserError(now.detail ?? 'Tally cannot use this folder.')
-    const db = createDataFolder(now.dataDir)
+    const db = createDataFolder(now.dataDir, app.getVersion())
     adopt(db, now.dataDir, true)
     await afterOpen()
     return bootState()
@@ -199,8 +201,12 @@ export function registerIpc(): void {
     const i = takeInspection(req.token)
     const now = inspectLocation(i.location)
     if (now.status !== 'existing') throw new UserError(now.detail ?? 'No Tally data was found in this folder.')
-    const db = openDatabase(path.join(now.dataDir, DB_FILE))
-    adopt(db, now.dataDir, true)
+    const res = openDataFolder(now.dataDir, app.getVersion())
+    if (!res.ok) throw new UserError(res.reason)
+    adopt(res.db, now.dataDir, true)
+    ctx.upgrade = res.upgrade
+      ? { fromVersion: res.upgrade.fromVersion, toVersion: res.upgrade.toVersion, backup: res.upgrade.backup }
+      : null
     await afterOpen()
     return bootState()
   })
@@ -343,7 +349,8 @@ export function registerIpc(): void {
         attemptId: id,
         questionId: id.nullable(),
         seconds: z.number().min(0).max(attempts.MAX_TICK_SECONDS),
-        position: z.number().int().min(0).max(10000)
+        position: z.number().int().min(0).max(10000),
+        visit: z.boolean().optional()
       })
       .strict(),
     (req) => attempts.tick(requireDb().db, req)
@@ -412,6 +419,22 @@ export function registerIpc(): void {
     )
     fs.writeFileSync(file, '﻿' + toCsv([header, ...safe]), 'utf8')
     return { saved: true, path: file, rows: rows.length }
+  })
+
+  // ----- Updates (only ever on request) -----
+  handle('updates:check', null, () => checkForUpdates())
+  handle('updates:open', z.object({ url: z.string().url().max(500) }).strict(), async (req) => {
+    if (!isOfferedDownload(req.url)) throw new UserError('That link was not offered by the update check.')
+    await shell.openExternal(req.url)
+  })
+  handle('updates:getAutoCheck', null, () => {
+    if (!ctx.db) return false
+    return ctx.db.prepare(`SELECT value FROM settings WHERE key = 'update_check_on_start'`).pluck().get() === '1'
+  })
+  handle('updates:setAutoCheck', z.object({ enabled: z.boolean() }).strict(), (req) => {
+    requireDb().db
+      .prepare(`INSERT INTO settings (key, value) VALUES ('update_check_on_start', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+      .run(req.enabled ? '1' : '0')
   })
 
   // ----- Settings -----
@@ -510,7 +533,9 @@ export function registerIpc(): void {
     fs.rmSync(`${live}-journal`, { force: true })
     fs.renameSync(staged, live)
     try {
-      adopt(openDatabase(live), dataDir, false)
+      const restored = openDatabase(live)
+      recordAppVersion(restored, app.getVersion())
+      adopt(restored, dataDir, false)
     } catch (err) {
       // Put the previous data back.
       fs.copyFileSync(path.join(dataDir, 'backups', backup), live)

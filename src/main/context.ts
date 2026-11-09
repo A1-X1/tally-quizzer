@@ -2,7 +2,7 @@ import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DB } from './db/connection'
-import type { BootState, ThemePreference } from '../shared/types'
+import type { BootState, ThemePreference, UpgradeNotice } from '../shared/types'
 import { openDataFolder, readConfig, writeConfig, createBackup, writeMirror, mirrorFile } from './storage'
 import { allVersionsForMirror } from './services/quizzes'
 
@@ -11,7 +11,8 @@ export const ctx: {
   db: DB | null
   dataDir: string | null
   missingReason: string | null
-} = { db: null, dataDir: null, missingReason: null }
+  upgrade: UpgradeNotice | null
+} = { db: null, dataDir: null, missingReason: null, upgrade: null }
 
 export const configFile = (): string => path.join(app.getPath('userData'), 'config.json')
 
@@ -42,7 +43,7 @@ export function closeDb(): void {
 }
 
 export function bootState(): BootState {
-  if (ctx.db && ctx.dataDir) return { kind: 'ready', dataDir: ctx.dataDir, theme: getTheme() }
+  if (ctx.db && ctx.dataDir) return { kind: 'ready', dataDir: ctx.dataDir, theme: getTheme(), upgrade: ctx.upgrade }
   const cfg = readConfig(configFile())
   if (!cfg.dataDir) return { kind: 'setup', defaultLocation: defaultLocation() }
   return { kind: 'missing', dataDir: cfg.dataDir, reason: ctx.missingReason ?? 'The data folder could not be opened.' }
@@ -54,9 +55,12 @@ export function tryOpenConfigured(): BootState {
   if (!cfg.dataDir) return bootState()
   if (ctx.db && ctx.dataDir === cfg.dataDir) return bootState()
   closeDb()
-  const res = openDataFolder(cfg.dataDir)
+  const res = openDataFolder(cfg.dataDir, app.getVersion())
   if (res.ok) {
     adopt(res.db, cfg.dataDir, false)
+    ctx.upgrade = res.upgrade
+      ? { fromVersion: res.upgrade.fromVersion, toVersion: res.upgrade.toVersion, backup: res.upgrade.backup }
+      : null
   } else {
     ctx.dataDir = null
     ctx.missingReason = res.reason

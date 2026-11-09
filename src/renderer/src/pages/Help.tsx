@@ -325,8 +325,8 @@ export function HelpPage({ section }: { section: string | null }) {
               </dd>
               <dt>Backups</dt>
               <dd>
-                Tally copies the database into <span className="mono">backups</span> each time it starts and before
-                deleting, restoring or moving anything, keeping the latest ten. Use <em>Export my data</em> in Settings
+                Tally copies the database into <span className="mono">backups</span> each time it starts, before a new
+                version uses it, and before deleting, restoring or moving anything, keeping the latest ten. Use <em>Export my data</em> in Settings
                 for a copy you keep elsewhere.
               </dd>
               <dt>Moving to another computer</dt>
@@ -341,7 +341,14 @@ export function HelpPage({ section }: { section: string | null }) {
                 <strong>Only run Tally on one computer at a time</strong> against the same folder, and let syncing
                 finish before opening it elsewhere. Two copies writing to one file can lose work.
               </dd>
-              <dt>Uninstalling or updating</dt>
+              <dt>Updating Tally</dt>
+              <dd>
+                Use <em>Check for updates</em> in <a href={href({ name: 'settings' })}>Settings</a>, then install the new
+                version over this one. Installing never touches your data folder. The first time the new version opens
+                your data it saves a pre-upgrade backup, then updates the data if needed; if anything goes wrong, the
+                backup is put back.
+              </dd>
+              <dt>Uninstalling</dt>
               <dd>Never touches your data folder.</dd>
             </dl>
           </section>

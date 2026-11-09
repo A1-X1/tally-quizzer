@@ -1255,3 +1255,386 @@ mark.hl,
 .section-head {
   min-height: 56px;
 }
+
+/* ------------------------------------------------------------------ */
+/* Visualisations and their motion                                     */
+/* ------------------------------------------------------------------ */
+
+.viz-bar {
+  fill: var(--ink);
+}
+.tone-ink {
+  fill: var(--ink);
+  background: var(--ink);
+}
+.tone-accent {
+  fill: var(--accent);
+  background: var(--accent);
+}
+.tone-good {
+  fill: var(--good);
+  background: var(--good);
+}
+.tone-bad {
+  fill: var(--bad);
+  background: var(--bad);
+}
+.tone-muted {
+  fill: var(--rule-2);
+  background: var(--rule-2);
+}
+
+.chart-ref {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.chart-bar-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--ink-2);
+}
+
+.bar-hit {
+  cursor: default;
+  outline: none;
+}
+
+.bar-hit:hover .viz-bar,
+.bar-hit:focus-visible .viz-bar {
+  filter: brightness(1.25);
+}
+
+.bar-hit:focus-visible rect:first-child {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.hbars {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hbars li {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(80px, 2fr) 72px;
+  align-items: center;
+  gap: 14px;
+}
+
+.hbar-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 560;
+}
+
+.hbar-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbar-label .faint {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.hbar-track {
+  height: 10px;
+  border-radius: 3px;
+  background: var(--bg-sunk);
+  overflow: hidden;
+}
+
+.hbar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+
+.hbar-value {
+  text-align: right;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.donut {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.donut-track {
+  fill: none;
+  stroke: var(--bg-sunk);
+  stroke-width: 20;
+}
+
+.donut-seg {
+  fill: none;
+  stroke-width: 20;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.donut-seg.is-dim {
+  opacity: 0.3;
+}
+
+.donut-value {
+  font-family: var(--font-display);
+  font-weight: 720;
+  font-size: 26px;
+  fill: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.donut-caption {
+  font-size: 11.5px;
+  fill: var(--ink-3);
+}
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+  flex: 1;
+}
+
+.legend li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto 44px;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.legend li.is-on .legend-label {
+  font-weight: 650;
+}
+
+.legend .num {
+  text-align: right;
+  font-size: 13px;
+}
+
+.legend-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.heat {
+  fill: var(--bg-sunk);
+}
+.heat-0 {
+  fill: var(--bg-sunk);
+  background: var(--bg-sunk);
+}
+.heat-1 {
+  fill: color-mix(in srgb, var(--accent) 28%, var(--bg));
+  background: color-mix(in srgb, var(--accent) 28%, var(--bg));
+}
+.heat-2 {
+  fill: color-mix(in srgb, var(--accent) 52%, var(--bg));
+  background: color-mix(in srgb, var(--accent) 52%, var(--bg));
+}
+.heat-3 {
+  fill: color-mix(in srgb, var(--accent) 76%, var(--bg));
+  background: color-mix(in srgb, var(--accent) 76%, var(--bg));
+}
+.heat-4 {
+  fill: var(--accent);
+  background: var(--accent);
+}
+
+.heat:hover {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.heat-scale {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.heat-key {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.scatter-dot {
+  fill-opacity: 0.85;
+  stroke: var(--bg);
+  stroke-width: 2;
+}
+
+.scatter-pt {
+  outline: none;
+}
+
+.scatter-pt:focus-visible .scatter-dot,
+.scatter-pt:hover .scatter-dot {
+  stroke: var(--ink);
+}
+
+.scatter-label {
+  font-size: 12px;
+  fill: var(--ink-2);
+}
+
+/* Motion: brief, staggered entrances. Reduced-motion users get none (see base.css). */
+@keyframes grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+@keyframes sweep {
+  from {
+    stroke-dasharray: 0 var(--c);
+  }
+}
+
+.anim-grow-y {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: grow-y 620ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 28ms);
+}
+
+.anim-grow-x {
+  transform-origin: 0 50%;
+  animation: grow-x 700ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+.anim-fade {
+  animation: fade-up 420ms var(--ease) both;
+  animation-delay: calc(300ms + var(--i, 0) * 28ms);
+}
+
+.anim-pop {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: pop 380ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 5ms);
+}
+
+.anim-sweep {
+  animation: sweep 900ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+.anim-line {
+  stroke-dasharray: 1;
+  animation: draw 1100ms var(--ease) both;
+}
+
+.anim-enter {
+  animation: fade-up 480ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 56px;
+}
+
+@media (max-width: 1100px) {
+  .viz-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.viz-note {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+
+.format-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: -6px 0 10px;
+}
+
+.viz-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.viz-head .mini-h {
+  margin: 0;
+}
+
+.viz-grid-wide {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+}
+
+@media (max-width: 1100px) {
+  .viz-grid-wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .viz-cell + .viz-cell {
+    margin-top: 36px;
+  }
+}
+
+.type-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}

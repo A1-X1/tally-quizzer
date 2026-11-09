@@ -24,7 +24,7 @@ const code = [
 const fonts = [
   ['@fontsource-variable/bricolage-grotesque', 'Bricolage Grotesque', 'Display type'],
   ['@fontsource-variable/instrument-sans', 'Instrument Sans', 'Text type'],
-  ['@fontsource-variable/jetbrains-mono', 'JetBrains Mono', 'Figures and data']
+  ['@fontsource-variable/spline-sans-mono', 'Spline Sans Mono', 'Figures and data']
 ]
 
 let out = `# Third-party notices

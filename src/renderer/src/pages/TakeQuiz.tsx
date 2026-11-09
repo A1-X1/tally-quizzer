@@ -34,6 +34,8 @@ export function TakeQuiz({ id }: { id: number }) {
         setIndex(Math.max(0, start))
         indexRef.current = Math.max(0, start)
         setElapsed(s.durationSeconds)
+        const q = s.questions[Math.max(0, start)]
+        if (q) void api('attempts:tick', { attemptId: s.id, questionId: q.id, seconds: 0, position: Math.max(0, start), visit: true }).catch(() => undefined)
       })
       .catch((e: unknown) => {
         if (errorCode(e) === 'NOT_IN_PROGRESS') go({ name: 'result', id }, true)
@@ -88,7 +90,9 @@ export function TakeQuiz({ id }: { id: number }) {
         indexRef.current = next
         setIndex(next)
         if (next < s.questions.length) {
-          void api('attempts:tick', { attemptId: s.id, questionId: null, seconds: 0, position: next }).catch(() => undefined)
+          void api('attempts:tick', { attemptId: s.id, questionId: s.questions[next].id, seconds: 0, position: next, visit: true }).catch(
+            () => undefined
+          )
         }
       })
     },
