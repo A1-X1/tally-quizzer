@@ -68,7 +68,7 @@ export function AttemptsTable({
     const sortKey = (['when', 'module', 'quiz', 'attempt', 'score', 'mark', 'time'] as string[]).includes(c)
       ? (c as SortKey)
       : null
-    const cls = NUMERIC.includes(c) ? 'num-col' : ''
+    const cls = `col-${c}${NUMERIC.includes(c) ? ' num-col' : ''}`
     if (!sortable || !sortKey) {
       return (
         <th key={c} scope="col" className={cls}>
@@ -119,59 +119,59 @@ export function AttemptsTable({
                 switch (c) {
                   case 'when':
                     return (
-                      <td key={c} className="nowrap" title={fmtDateTime(r.submittedAt)}>
+                      <td key={c} className={`col-${c} nowrap`} title={fmtDateTime(r.submittedAt)}>
                         <span>{fmtRelative(r.submittedAt)}</span>{' '}
-                        <span className="faint num">{fmtTime(r.submittedAt)}</span>
+                        <span className="faint num when-time">{fmtTime(r.submittedAt)}</span>
                       </td>
                     )
                   case 'module':
                     return (
-                      <td key={c} className="cell-module">
+                      <td key={c} className={`col-${c} cell-module`}>
                         <Swatch colour={r.moduleColour} />
                         <span>{r.moduleName}</span>
                       </td>
                     )
                   case 'quiz':
                     return (
-                      <td key={c} className="cell-quiz">
+                      <td key={c} className={`col-${c} cell-quiz`}>
                         <span>{r.quizTitle}</span>
                         {r.isPractice ? <span className="tag tag-practice">Practice</span> : null}
                       </td>
                     )
                   case 'version':
                     return (
-                      <td key={c} className="num-col num">
+                      <td key={c} className={`col-${c} num-col num`}>
                         v{r.versionNo}
                       </td>
                     )
                   case 'attempt':
                     return (
-                      <td key={c} className="num-col num">
+                      <td key={c} className={`col-${c} num-col num`}>
                         {r.attemptNumber !== null ? `#${r.attemptNumber}` : '—'}
                       </td>
                     )
                   case 'score':
                     return (
-                      <td key={c} className="num-col">
+                      <td key={c} className={`col-${c} num-col`}>
                         <Score value={r.percentage} />
                       </td>
                     )
                   case 'mark':
                     return (
-                      <td key={c} className="num-col num">
+                      <td key={c} className={`col-${c} num-col num`}>
                         {fmtMarks(r.marksAwarded)}
                         <span className="faint">/{fmtMarks(r.marksAvailable)}</span>
                       </td>
                     )
                   case 'time':
                     return (
-                      <td key={c} className="num-col num">
+                      <td key={c} className={`col-${c} num-col num`}>
                         {fmtDuration(r.durationSeconds)}
                       </td>
                     )
                   case 'marking':
                     return (
-                      <td key={c} className="faint">
+                      <td key={c} className={`col-${c} faint`}>
                         {r.markingMode === 'strict' ? 'Strict' : 'Partial'}
                       </td>
                     )

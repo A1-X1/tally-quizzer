@@ -362,7 +362,7 @@ test.describe('packaged app', () => {
     const r = await launch(env)
     const info = await r.app.evaluate(({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0]
-      const prefs = w.webContents.getLastWebPreferences()
+      const prefs = (w.webContents as unknown as { getLastWebPreferences(): Electron.WebPreferences | null }).getLastWebPreferences()
       return {
         min: w.getMinimumSize(),
         contextIsolation: prefs?.contextIsolation,
@@ -372,7 +372,7 @@ test.describe('packaged app', () => {
     })
     expect(info).toEqual({ min: [900, 620], contextIsolation: true, sandbox: true, nodeIntegration: false })
     expect(await r.page.evaluate(() => typeof (window as unknown as { require?: unknown }).require)).toBe('undefined')
-    expect(await r.page.evaluate(() => Object.keys((window as unknown as { tally: object }).tally).sort())).toEqual(['invoke', 'platform'])
+    expect(await r.page.evaluate(() => Object.keys((window as unknown as { tally: object }).tally).sort())).toEqual(['invoke', 'onSystemTheme', 'platform'])
     // In-app navigation away from the app is refused.
     await r.page.evaluate(() => {
       location.href = 'https://example.com/'

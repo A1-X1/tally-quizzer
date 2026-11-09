@@ -165,6 +165,7 @@ export function registerIpc(): void {
   // ----- App -----
   handle('app:boot', null, () => bootState())
   handle('app:version', null, () => app.getVersion())
+  handle('app:systemDark', null, () => nativeTheme.shouldUseDarkColors)
   handle('app:openReleases', null, async () => {
     await shell.openExternal(RELEASES_URL)
   })

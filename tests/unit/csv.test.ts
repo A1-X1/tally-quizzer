@@ -19,7 +19,7 @@ const row = (over: Partial<Record<string, string>> = {}): string[] => {
     topic: ''
   }
   const merged = { ...base, ...over }
-  return HEADER.split(',').map((h) => merged[h])
+  return HEADER.split(',').map((h) => merged[h] ?? '')
 }
 const errorsFor = (text: string) => validateQuizCsv(text).errors
 

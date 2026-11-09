@@ -92,7 +92,11 @@ export function ResultsPage({ id }: { id: number }) {
               ) : (
                 <span className={vsPrev > 0 ? 'good' : vsPrev < 0 ? 'bad' : ''}>{signed(vsPrev, 0)} pts</span>
               )}
-              {data.previous ? <span className="faint small"> (#{data.previous.attemptNumber}: {Math.round(data.previous.percentage)}%)</span> : null}
+              {data.previous ? (
+                <span className="fact-sub faint">
+                  vs #{data.previous.attemptNumber} at {Math.round(data.previous.percentage)}%
+                </span>
+              ) : null}
             </dd>
           </div>
           <div>
@@ -100,7 +104,8 @@ export function ResultsPage({ id }: { id: number }) {
             <dd className="num">
               {data.best ? (
                 <>
-                  {Math.round(data.best.percentage)}% <span className="faint small">(#{data.best.attemptNumber})</span>
+                  {Math.round(data.best.percentage)}%
+                  <span className="fact-sub faint">attempt #{data.best.attemptNumber}</span>
                 </>
               ) : (
                 <span className="faint">—</span>

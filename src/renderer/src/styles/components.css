@@ -1232,3 +1232,26 @@ mark.hl,
 .opt-key-multi {
   border-radius: 5px;
 }
+
+/* Narrow windows: keep the columns that matter. */
+.when-time {
+  margin-left: 6px;
+}
+
+@media (max-width: 1180px) {
+  .col-version,
+  .col-marking,
+  .when-time {
+    display: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .history .col-module {
+    display: none;
+  }
+}
+
+.section-head {
+  min-height: 56px;
+}

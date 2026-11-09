@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { CHANNELS, type Channel, type IpcEnvelope, type Req, type Res, type TallyBridge } from '../shared/api'
+import { CHANNELS, THEME_EVENT, type Channel, type IpcEnvelope, type Req, type Res, type TallyBridge } from '../shared/api'
 
 const allowed = new Set<string>(CHANNELS)
 
@@ -10,6 +10,13 @@ const bridge: TallyBridge = {
     const envelope = (await ipcRenderer.invoke(channel, args[0])) as IpcEnvelope<Res<C>>
     if (envelope.ok) return envelope.data
     throw new Error(envelope.error)
+  },
+  onSystemTheme(listener: (dark: boolean) => void): () => void {
+    const handler = (_e: Electron.IpcRendererEvent, dark: unknown): void => listener(dark === true)
+    ipcRenderer.on(THEME_EVENT, handler)
+    return () => {
+      ipcRenderer.removeListener(THEME_EVENT, handler)
+    }
   }
 }
 

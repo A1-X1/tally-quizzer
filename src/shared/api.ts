@@ -32,6 +32,7 @@ export interface IpcContract {
   'app:version': [void, string]
   'app:openReleases': [void, void]
   'app:setTitleBarTheme': [{ dark: boolean }, void]
+  'app:systemDark': [void, boolean]
 
   'setup:inspectDefault': [void, FolderInspection]
   'setup:pickFolder': [void, FolderInspection | null]
@@ -97,6 +98,7 @@ export const CHANNELS = [
   'app:version',
   'app:openReleases',
   'app:setTitleBarTheme',
+  'app:systemDark',
   'setup:inspectDefault',
   'setup:pickFolder',
   'setup:create',
@@ -153,7 +155,11 @@ export type IpcEnvelope<T> = { ok: true; data: T } | { ok: false; error: string 
 export interface TallyBridge {
   platform: 'darwin' | 'win32' | 'linux' | string
   invoke<C extends Channel>(channel: C, ...args: Req<C> extends void ? [] : [Req<C>]): Promise<Res<C>>
+  /** Called when the operating system switches between light and dark. Returns an unsubscribe function. */
+  onSystemTheme(listener: (dark: boolean) => void): () => void
 }
+
+export const THEME_EVENT = 'tally:system-theme'
 
 export const RELEASES_URL = 'https://github.com/A1-X1/tally-quizzer/releases'
 export const MAX_CSV_BYTES = 2 * 1024 * 1024

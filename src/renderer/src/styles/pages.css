@@ -13,7 +13,7 @@
 
 .page-title {
   font-size: clamp(44px, 5.4vw, 72px);
-  letter-spacing: -0.04em;
+  letter-spacing: -0.032em;
   line-height: 0.95;
   font-weight: 760;
   font-stretch: 92%;
@@ -79,10 +79,10 @@
 
 .welcome-title {
   font-size: clamp(54px, 7.2vw, 104px);
-  line-height: 0.92;
-  letter-spacing: -0.045em;
-  font-weight: 780;
-  font-stretch: 88%;
+  line-height: 0.94;
+  letter-spacing: -0.036em;
+  font-weight: 760;
+  font-stretch: 90%;
 }
 
 .welcome-lede {
@@ -241,9 +241,9 @@
 
 .headline {
   font-size: clamp(38px, 4.6vw, 64px);
-  line-height: 1.02;
-  letter-spacing: -0.035em;
-  font-weight: 720;
+  line-height: 1.04;
+  letter-spacing: -0.026em;
+  font-weight: 700;
   font-stretch: 92%;
   max-width: 20ch;
   text-wrap: balance;
@@ -1231,8 +1231,7 @@
     'score actions';
   gap: 12px 64px;
   align-items: end;
-  padding-bottom: 32px;
-  border-bottom: 2px solid var(--rule-strong);
+  padding-bottom: 8px;
 }
 
 .result-score {
@@ -1300,9 +1299,12 @@
   letter-spacing: -0.02em;
 }
 
-.result-facts dd .small {
+.fact-sub {
+  display: block;
   font-size: 12px;
   font-weight: 400;
+  letter-spacing: 0;
+  margin-top: 1px;
 }
 
 .result-actions {
@@ -1695,6 +1697,12 @@
   color: var(--bg);
   font-size: 12.5px;
   line-height: 1.6;
+}
+
+:root[data-theme='dark'] .prompt {
+  background: var(--bg-sunk);
+  color: var(--ink);
+  border: 1px solid var(--rule-2);
 }
 
 .prompt code {

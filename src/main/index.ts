@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeTheme } from 'electron'
 import path from 'node:path'
 import { afterOpen, closeDb, getTheme, tryOpenConfigured } from './context'
 import { registerIpc } from './ipc'
+import { THEME_EVENT } from '../shared/api'
 import { blockedRequests, createMainWindow, hardenSession, registerSchemes, serveRenderer } from './window'
 
 // Tests (and power users) can isolate Tally's settings directory.
@@ -36,6 +37,9 @@ if (!app.requestSingleInstanceLock()) {
     if (state.kind === 'ready') void afterOpen()
 
     mainWindow = createMainWindow()
+    nativeTheme.on('updated', () => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send(THEME_EVENT, nativeTheme.shouldUseDarkColors)
+    })
     mainWindow.on('closed', () => {
       mainWindow = null
     })

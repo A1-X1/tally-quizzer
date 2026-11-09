@@ -118,7 +118,7 @@ export function Trend({ value }: { value: number | null }) {
     <span className={`num trend trend-${dir}`} title={label}>
       <span aria-hidden="true">{dir === 'up' ? '▲' : dir === 'down' ? '▼' : '–'}</span>
       <span className="sr-only">{label}</span>
-      <span aria-hidden="true">{dir === 'flat' ? '0' : Math.abs(value).toFixed(0)}</span>
+      {dir === 'flat' ? null : <span aria-hidden="true">{Math.abs(value).toFixed(0)}</span>}
     </span>
   )
 }
