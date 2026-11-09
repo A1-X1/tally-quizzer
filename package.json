@@ -5,7 +5,7 @@
   "description": "A local-first desktop quiz and revision tracker.",
   "main": "./out/main/index.js",
   "author": "A1-X1",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "homepage": "https://github.com/A1-X1/tally-quizzer",
   "private": true,
   "type": "commonjs",
@@ -19,7 +19,8 @@
     "dist:linux": "electron-vite build && electron-builder --linux --publish never",
     "dist:dir": "electron-vite build && electron-builder --dir --publish never",
     "icons": "node scripts/make-icons.mjs",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "notices": "node scripts/notices.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

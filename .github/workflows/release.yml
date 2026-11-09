@@ -1,0 +1,143 @@
+name: Test and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Build and verify all installers (without publishing)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  test:
+    name: Typecheck and unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      # postinstall runs `electron-builder install-app-deps` for the exact Electron version.
+      - run: npm ci
+      - run: npm run typecheck
+      # Vitest runs inside Electron's Node runtime so better-sqlite3 loads under the shipped ABI.
+      - run: npm test
+      - run: npm run build
+
+  package:
+    name: Package ${{ matrix.name }}
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.package)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-2025
+            os: win
+            arch: x64
+            builder: --win --x64
+          - name: macOS Apple Silicon
+            runner: macos-15
+            os: mac
+            arch: arm64
+            builder: --mac --arm64
+          - name: macOS Intel
+            runner: macos-15-intel
+            os: mac
+            arch: x64
+            builder: --mac --x64
+          - name: Linux x64
+            runner: ubuntu-24.04
+            os: linux
+            arch: x64
+            builder: --linux --x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # Each OS builds natively on its own runner; nothing is cross-compiled.
+      - run: npx electron-builder ${{ matrix.builder }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify package (native binary architecture, codesign on macOS)
+        run: node scripts/verify-package.mjs ${{ matrix.os }} ${{ matrix.arch }}
+      - name: End-to-end tests against the packaged app (Linux)
+        if: matrix.os == 'linux'
+        run: xvfb-run -a npx playwright test --trace off
+      - name: End-to-end tests against the packaged app
+        if: matrix.os != 'linux'
+        run: npx playwright test --trace off
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            release/Tally-Setup-*.exe
+            release/Tally-*.dmg
+            release/Tally-*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+      - name: List release files
+        run: ls -la dist
+      - name: Version
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Check all four release files are present
+        run: |
+          v="${{ steps.v.outputs.version }}"
+          for f in "Tally-Setup-$v.exe" "Tally-$v-arm64.dmg" "Tally-$v-x64.dmg" "Tally-$v-x86_64.AppImage"; do
+            test -s "dist/$f" || { echo "Missing $f"; exit 1; }
+          done
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Tally ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+          body: |
+            ## Download
+
+            | Your computer | File |
+            |---|---|
+            | Windows 10 or 11 (64-bit) | `Tally-Setup-${{ steps.v.outputs.version }}.exe` (installer) |
+            | Mac with Apple silicon (M1 or later) | `Tally-${{ steps.v.outputs.version }}-arm64.dmg` |
+            | Mac with an Intel processor | `Tally-${{ steps.v.outputs.version }}-x64.dmg` |
+            | Linux (64-bit) | `Tally-${{ steps.v.outputs.version }}-x86_64.AppImage` |
+
+            The installers are not signed with a paid certificate. See the README for the one-time steps to open Tally on Windows and macOS.
+          files: |
+            dist/Tally-Setup-*.exe
+            dist/Tally-*.dmg
+            dist/Tally-*.AppImage
+          fail_on_unmatched_files: true

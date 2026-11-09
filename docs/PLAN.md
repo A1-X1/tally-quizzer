@@ -75,3 +75,21 @@ original brief.
   architectures; only Linux was exercised outside CI.
 - **Release upload** uses electron-builder with `--publish never`, then a final job collects the
   four files and creates the GitHub Release, so no build can publish a partial release.
+- **Sample CSVs live only in `samples/`.** They are bundled into the app at build time
+  (Vite `?raw` imports), so `resources/` holds only icons and the macOS entitlements; there is
+  no second copy to drift out of date.
+- **Native module.** better-sqlite3 13 ships Node-API binaries for each platform and
+  architecture, which are ABI-stable across Electron versions. `postinstall` still runs
+  `electron-builder install-app-deps` against the exact Electron version, packaging skips a
+  second rebuild, and an `afterPack` hook keeps only the binary for the target platform and
+  architecture (outside the ASAR). CI checks the binary's architecture in every package.
+- **System theme.** The main process forwards `nativeTheme` changes to the renderer through a
+  single typed event, because `prefers-color-scheme` alone did not always update.
+- **No licence file.** The repository owner has not chosen a licence for Tally's own code, so
+  `package.json` says `UNLICENSED` and no `LICENSE` is added. Third-party licences are in
+  `THIRD_PARTY_NOTICES.md`.
+
+## Status
+
+All nine milestones are implemented. Unit tests and the packaged-app end-to-end suite run
+locally on Linux and in CI on every operating system before a release is published.
