@@ -1,0 +1,81 @@
+# Packaging for Tally. Each OS is built on its own CI runner; see .github/workflows/release.yml.
+appId: com.a1x1.tally
+productName: Tally
+copyright: Copyright © 2026 A1-X1
+
+directories:
+  buildResources: resources
+  output: release
+
+files:
+  - out/**
+  - resources/icon.png
+  - package.json
+  # better-sqlite3 ships N-API prebuilds; its sources are not needed at runtime.
+  - '!**/node_modules/better-sqlite3/{deps,src,docs,benchmark}/**'
+  - '!**/node_modules/better-sqlite3/binding.gyp'
+  - '!**/node_modules/node-addon-api/**'
+
+asar: true
+# The native SQLite binding must live outside the ASAR archive to be loadable.
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+
+# better-sqlite3 13 bundles Node-API (ABI-stable) binaries per platform and
+# architecture, so no rebuild is needed while packaging. The postinstall step
+# still runs `electron-builder install-app-deps` against the exact Electron version.
+npmRebuild: false
+buildDependenciesFromSource: false
+
+# Keep only the native binary for the platform and architecture being packaged.
+afterPack: scripts/after-pack.cjs
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: icon.ico
+  executableName: Tally
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Tally
+  uninstallDisplayName: Tally
+  deleteAppDataOnUninstall: false
+  artifactName: Tally-Setup-${version}.${ext}
+
+mac:
+  target: dmg
+  category: public.app-category.education
+  icon: icon.icns
+  # No paid certificate: ad-hoc sign, with hardened runtime and the entitlements
+  # Electron needs to run (JIT) and to load the ad-hoc signed native module.
+  identity: '-'
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  notarize: false
+
+dmg:
+  artifactName: Tally-${version}-${arch}.${ext}
+  title: Tally ${version}
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  icon: icons
+  category: Education
+  synopsis: Quiz and revision tracker
+  description: Organise quizzes into modules, take them, and track your scores over time. All data stays on your computer.
+  executableName: tally
+  syncDesktopName: true
+  artifactName: Tally-${version}-x86_64.${ext}
+
+publish: null
